@@ -16,13 +16,22 @@ final class SourcesModule implements ModuleInterface
 
     private SourcesHooks $hooks;
 
+    private SourcesService $service;
+
     public function __construct()
     {
         $repository = new SourcesRepository();
-        $service = new SourcesService($repository);
+        $this->service = new SourcesService($repository);
 
-        $this->controller = new SourcesController($service);
+        $this->controller = new SourcesController($this->service);
         $this->hooks = new SourcesHooks();
+    }
+
+    public static function activate(): void
+    {
+        $repository = new SourcesRepository();
+        $service = new SourcesService($repository);
+        $service->install();
     }
 
     public function get_slug(): string
@@ -40,4 +49,3 @@ final class SourcesModule implements ModuleInterface
         $this->controller->register_routes();
     }
 }
-

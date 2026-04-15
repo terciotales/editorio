@@ -1,12 +1,12 @@
 <?php
 /**
  * Plugin Name: Editorio
- * Plugin URI: https://example.com/editorio
+ * Plugin URI: https://github.com/terciotales/editorio
  * Description: Automates news workflows from RSS sources into reviewable WordPress drafts.
  * Version: 0.1.0
  * Requires at least: 6.0
  * Requires PHP: 8.0
- * Author: Editorio
+ * Author: Tércio Tales
  * License: GPL-2.0-or-later
  * Text Domain: editorio
  */

@@ -13,9 +13,11 @@
 
 ### Node
 /node_modules/
+/package-lock.json
 
 ### Composer
 /vendor/
+/composer.lock
 /**/composer.phar
 /**/composer-dev.json
 /**/composer-dev.lock

@@ -47,6 +47,7 @@ final class Plugin
 
     public static function activate(): void
     {
+        SourcesModule::activate();
         flush_rewrite_rules();
     }
 

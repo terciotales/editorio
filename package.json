@@ -1,0 +1,18 @@
+{
+  "name": "editorio",
+  "version": "0.1.0",
+  "description": "Editorio WordPress plugin assets",
+  "license": "GPL-2.0-or-later",
+  "scripts": {
+    "start": "wp-scripts start --webpack-src-dir=src --output-path=bundle",
+    "build": "wp-scripts build --webpack-src-dir=src --output-path=bundle",
+    "lint:js": "wp-scripts lint-js src",
+    "lint:css": "wp-scripts lint-style 'src/**/*.scss'",
+    "release": "bash ./build-release.sh"
+  },
+  "devDependencies": {
+    "@wordpress/scripts": "^31.6.0",
+    "sass": "^1.77.0"
+  }
+}
+

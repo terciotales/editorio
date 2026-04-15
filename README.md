@@ -138,3 +138,33 @@ Draft becomes a WordPress post.
 ## 🤝 Contributing
 
 This project is being developed with AI-assisted workflows. See `AGENTS.md` for development guidelines.
+
+---
+
+## Front-end Build (Webpack)
+
+The plugin uses `@wordpress/scripts` (webpack under the hood) to compile assets from `src/` into `bundle/`.
+
+### Structure
+
+- `src/js/index.js` → outputs into `bundle/js/index.js`
+- `src/css/index.scss` → outputs into `bundle/css/index.css`
+- `webpack.config.js` → custom entry/output settings
+
+### Commands
+
+```bash
+cd public/wp-content/plugins/editorio
+npm install
+npm run start
+npm run build
+npm run release
+```
+
+### Release Output
+
+`npm run release` creates an installable zip at:
+
+- `dist/editorio.zip`
+
+The release process excludes development files (`src`, `node_modules`, webpack config, package files, etc.) and keeps runtime files only.

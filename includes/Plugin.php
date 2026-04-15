@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Editorio;
 
+use Editorio\Common\Assets;
 use Editorio\Common\ModuleLoader;
 use Editorio\Modules\Collector\CollectorModule;
 use Editorio\Modules\Draft\DraftModule;
@@ -18,6 +19,8 @@ final class Plugin
 
     private ModuleLoader $module_loader;
 
+    private Assets $assets;
+
     private function __construct()
     {
         $this->module_loader = new ModuleLoader([
@@ -28,6 +31,8 @@ final class Plugin
             new ReviewModule(),
             new PublisherModule(),
         ]);
+
+        $this->assets = new Assets();
     }
 
     public static function boot(): void
@@ -52,8 +57,8 @@ final class Plugin
 
     private function register(): void
     {
+        $this->assets->register_hooks();
         $this->module_loader->register_hooks();
         add_action('rest_api_init', [$this->module_loader, 'register_rest_routes']);
     }
 }
-

@@ -6,6 +6,32 @@ namespace Editorio\Common;
 
 final class Assets
 {
+    /**
+     * @var array<string,array{script:string,asset:string,style?:string}>
+     */
+    private const ENTRIES = [
+        'editorio-app' => [
+            'script' => 'bundle/js/index.js',
+            'asset' => 'bundle/js/index.asset.php',
+            'style' => 'bundle/css/index.css',
+        ],
+        'editorio-sources' => [
+            'script' => 'bundle/modules/sources/index.js',
+            'asset' => 'bundle/modules/sources/index.asset.php',
+            'style' => 'bundle/modules/sources/index.css',
+        ],
+        'editorio-draft' => [
+            'script' => 'bundle/modules/draft/index.js',
+            'asset' => 'bundle/modules/draft/index.asset.php',
+            'style' => 'bundle/modules/draft/index.css',
+        ],
+        'editorio-review' => [
+            'script' => 'bundle/modules/review/index.js',
+            'asset' => 'bundle/modules/review/index.asset.php',
+            'style' => 'bundle/modules/review/index.css',
+        ],
+    ];
+
     public function register_hooks(): void
     {
         add_action('init', [$this, 'register']);
@@ -15,62 +41,89 @@ final class Assets
 
     public function register(): void
     {
-        $script_asset_path = EDITORIO_PLUGIN_PATH . 'bundle/js/index.asset.php';
-        $script_file_path = EDITORIO_PLUGIN_PATH . 'bundle/js/index.js';
-        $style_file_path = EDITORIO_PLUGIN_PATH . 'bundle/css/index.css';
-
-        $script_asset = [
-            'dependencies' => [],
-            'version' => EDITORIO_VERSION,
-        ];
-
-        if (file_exists($script_asset_path)) {
-            $script_asset_data = require $script_asset_path;
-            if (is_array($script_asset_data)) {
-                $script_asset = array_merge($script_asset, $script_asset_data);
-            }
-        }
-
-        if (file_exists($script_file_path)) {
-            wp_register_script(
-                'editorio-app',
-                EDITORIO_PLUGIN_URL . 'bundle/js/index.js',
-                $script_asset['dependencies'],
-                $script_asset['version'],
-                true
-            );
-        }
-
-        if (file_exists($style_file_path)) {
-            wp_register_style(
-                'editorio-app',
-                EDITORIO_PLUGIN_URL . 'bundle/css/index.css',
-                [],
-                EDITORIO_VERSION
-            );
+        foreach (self::ENTRIES as $handle => $entry) {
+            $this->register_entry($handle, $entry);
         }
     }
 
     public function enqueue_admin(): void
     {
-        if (wp_script_is('editorio-app', 'registered')) {
-            wp_enqueue_script('editorio-app');
-        }
-
-        if (wp_style_is('editorio-app', 'registered')) {
-            wp_enqueue_style('editorio-app');
-        }
+        $this->enqueue_registered_entries();
     }
 
     public function enqueue_editor(): void
     {
-        if (wp_script_is('editorio-app', 'registered')) {
-            wp_enqueue_script('editorio-app');
+        $this->enqueue_registered_entries();
+    }
+
+    /**
+     * @param array{script:string,asset:string,style?:string} $entry
+     */
+    private function register_entry(string $handle, array $entry): void
+    {
+        $asset = $this->read_asset_metadata($entry['asset']);
+        $script_file_path = EDITORIO_PLUGIN_PATH . $entry['script'];
+
+        if (file_exists($script_file_path)) {
+            wp_register_script(
+                $handle,
+                EDITORIO_PLUGIN_URL . $entry['script'],
+                $asset['dependencies'],
+                $asset['version'],
+                true
+            );
         }
 
-        if (wp_style_is('editorio-app', 'registered')) {
-            wp_enqueue_style('editorio-app');
+        if (! isset($entry['style'])) {
+            return;
+        }
+
+        $style_file_path = EDITORIO_PLUGIN_PATH . $entry['style'];
+        if (! file_exists($style_file_path)) {
+            return;
+        }
+
+        wp_register_style(
+            $handle,
+            EDITORIO_PLUGIN_URL . $entry['style'],
+            [],
+            $asset['version']
+        );
+    }
+
+    /**
+     * @return array{dependencies:array<int,string>,version:string}
+     */
+    private function read_asset_metadata(string $asset_relative_path): array
+    {
+        $asset = [
+            'dependencies' => [],
+            'version' => EDITORIO_VERSION,
+        ];
+
+        $asset_file_path = EDITORIO_PLUGIN_PATH . $asset_relative_path;
+        if (! file_exists($asset_file_path)) {
+            return $asset;
+        }
+
+        $asset_data = require $asset_file_path;
+        if (is_array($asset_data)) {
+            $asset = array_merge($asset, $asset_data);
+        }
+
+        return $asset;
+    }
+
+    private function enqueue_registered_entries(): void
+    {
+        foreach (array_keys(self::ENTRIES) as $handle) {
+            if (wp_script_is($handle, 'registered')) {
+                wp_enqueue_script($handle);
+            }
+
+            if (wp_style_is($handle, 'registered')) {
+                wp_enqueue_style($handle);
+            }
         }
     }
 }
-

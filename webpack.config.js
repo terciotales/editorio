@@ -13,6 +13,9 @@ module.exports = {
       ...defaultEntries,
       'js/index': path.resolve(process.cwd(), 'src/js/index.js'),
       'css/index': path.resolve(process.cwd(), 'src/css/index.scss'),
+      'modules/sources/index': path.resolve(process.cwd(), 'src/js/modules/sources/index.js'),
+      'modules/draft/index': path.resolve(process.cwd(), 'src/js/modules/draft/index.js'),
+      'modules/review/index': path.resolve(process.cwd(), 'src/js/modules/review/index.js'),
     };
   },
   output: {
@@ -20,4 +23,3 @@ module.exports = {
     path: path.resolve(process.cwd(), 'bundle'),
   },
 };
-

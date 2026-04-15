@@ -147,9 +147,12 @@ The plugin uses `@wordpress/scripts` (webpack under the hood) to compile assets 
 
 ### Structure
 
-- `src/js/index.js` → outputs into `bundle/js/index.js`
-- `src/css/index.scss` → outputs into `bundle/css/index.css`
-- `webpack.config.js` → custom entry/output settings
+- `src/js/index.js` -> outputs into `bundle/js/index.js`
+- `src/css/index.scss` -> outputs into `bundle/css/index.css`
+- `src/js/modules/sources/index.js` -> outputs into `bundle/modules/sources/index.js`
+- `src/js/modules/draft/index.js` -> outputs into `bundle/modules/draft/index.js`
+- `src/js/modules/review/index.js` -> outputs into `bundle/modules/review/index.js`
+- `webpack.config.js` -> custom entry/output settings
 
 ### Commands
 

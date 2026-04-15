@@ -1,106 +1,140 @@
 # Editorio
 
-Automates news creation in WordPress by importing RSS feeds and turning them into ready-to-publish posts.
-
-## 🚀 Overview
-
-Editorio is a WordPress plugin designed to streamline content creation by aggregating news from RSS feeds and transforming them into draft posts.
-
-Instead of manually searching and writing news, you can centralize multiple sources and generate structured drafts ready for editing and publishing.
+Automates news creation in WordPress by importing RSS feeds and transforming them into structured draft posts.
 
 ---
 
-## ✨ Features
+## 🎯 Purpose
 
-- 📡 Register and manage RSS news sources
-- 📰 Fetch and parse content from multiple feeds
-- 🧠 Generate draft articles based on imported content
-- 📋 Review generated drafts before publishing
-- ✏️ Send drafts directly to the WordPress editor
+Editorio is a WordPress plugin designed to automate the process of news aggregation and draft generation.
+
+It allows users to register RSS sources, collect content, and transform it into editable drafts inside WordPress.
 
 ---
 
-## 🧩 How It Works
+## 🧠 Core Concept
 
-### 1. Sources Management
-Create and manage your news sources by adding RSS feed URLs.
+Editorio acts as a **content pipeline**:
 
-This is where you define where your content comes from.
+Sources → Collection → Processing → Draft → Review → Editor
 
 ---
 
-### 2. Content Aggregation *(WIP)*
+## 🏗️ Architecture Overview
 
-Editorio will fetch articles from registered feeds and process them into draft content.
+The plugin is structured into modular layers:
 
-> ⚠️ This part is still under design and may include:
+- **Sources Module** → manages RSS feeds
+- **Collector Module** → fetches feed data
+- **Processor Module** → transforms raw data into content
+- **Draft Module** → builds structured drafts
+- **Review Module** → UI for approval/discard
+- **Publisher Module** → sends content to WP editor
+
+---
+
+## 📦 Features
+
+### ✅ Implemented (MVP Goal)
+
+- RSS source registration
+- Feed fetching
+- Draft generation (basic)
+- Draft review screen
+- Send draft to WordPress editor
+
+### 🧪 Planned
+
 - Content filtering rules
-- Deduplication of similar news
-- Merging multiple sources into a single article
-- Smart topic grouping
+- Duplicate detection
+- Multi-source merging (same topic)
+- AI-assisted rewriting
+- Scheduling (cron)
+- Tag/category auto-detection
 
 ---
 
-### 3. Draft Generation
+## 🔄 Workflow
 
-The plugin generates a draft version of the news article based on the collected data.
+### 1. Register Sources
+User adds RSS feed URLs.
 
----
+### 2. Fetch Content
+System retrieves items from feeds.
 
-### 4. Review Screen
+### 3. Process Content *(WIP)*
+- Normalize data
+- Remove duplicates
+- Prepare structure
 
-Before publishing, you’ll be able to:
+### 4. Generate Draft
+Create a structured draft article.
 
-- Preview the generated draft
-- Discard unwanted content
-- Send the draft to the WordPress editor
+### 5. Review
+User can:
+- Approve
+- Discard
+- Send to editor
 
----
-
-### 5. Edit & Publish
-
-With one click, the draft is saved as a WordPress post and opened in the editor, allowing you to refine and publish it.
-
----
-
-## ⏱️ Automation *(WIP)*
-
-Content generation may support:
-
-- Manual execution
-- Scheduled jobs (cron)
-- Custom frequency settings
-
-> ⚠️ This feature is still being defined.
+### 6. Publish
+Draft becomes a WordPress post.
 
 ---
 
-## 🛠️ Installation
+## 🧱 Data Model (Conceptual)
 
-1. Upload the plugin to your `/wp-content/plugins/` directory
-2. Activate the plugin through the WordPress admin
-3. Access the **Editorio** menu to start adding sources
+### Source
+- id
+- name
+- url
+- active
+
+### FeedItem
+- id
+- source_id
+- title
+- content
+- link
+- published_at
+
+### Draft
+- id
+- title
+- content
+- status (pending, approved, discarded)
+- created_at
+
+---
+
+## ⏱️ Execution Modes
+
+- Manual trigger
+- Scheduled (cron) *(planned)*
+
+---
+
+## 🛠️ Tech Stack
+
+- PHP (WordPress plugin)
+- JavaScript (React for admin UI)
+- WordPress REST API
+- WP Cron (planned)
 
 ---
 
 ## 📌 Roadmap
 
-- [ ] RSS source management UI
-- [ ] Draft generation engine
-- [ ] Review & approval interface
-- [ ] Content filtering system
-- [ ] Similar news grouping
-- [ ] Automation (cron jobs)
-- [ ] AI-powered rewriting (optional)
+- [ ] Sources UI
+- [ ] Feed ingestion service
+- [ ] Draft builder
+- [ ] Review interface
+- [ ] Editor integration
+- [ ] Deduplication engine
+- [ ] AI integration
+- [ ] Scheduling system
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Feel free to open issues or submit pull requests.
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
+This project is being developed with AI-assisted workflows. See `AGENTS.md` for development guidelines.

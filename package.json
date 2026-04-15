@@ -11,8 +11,10 @@
     "release": "bash ./build-release.sh"
   },
   "devDependencies": {
+    "@wordpress/api-fetch": "^7.44.0",
+    "@wordpress/dom-ready": "^4.44.0",
+    "@wordpress/element": "^6.44.0",
     "@wordpress/scripts": "^32.0.0",
-    "sass": "^1.99.0"
+    "sass": "^1.77.0"
   }
 }
-

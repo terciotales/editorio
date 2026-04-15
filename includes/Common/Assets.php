@@ -35,7 +35,6 @@ final class Assets
     public function register_hooks(): void
     {
         add_action('init', [$this, 'register']);
-        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin']);
         add_action('enqueue_block_editor_assets', [$this, 'enqueue_editor']);
     }
 
@@ -44,11 +43,6 @@ final class Assets
         foreach (self::ENTRIES as $handle => $entry) {
             $this->register_entry($handle, $entry);
         }
-    }
-
-    public function enqueue_admin(): void
-    {
-        $this->enqueue_registered_entries();
     }
 
     public function enqueue_editor(): void

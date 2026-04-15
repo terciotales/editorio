@@ -171,3 +171,25 @@ npm run release
 - `dist/editorio.zip`
 
 The release process excludes development files (`src`, `node_modules`, webpack config, package files, etc.) and keeps runtime files only.
+
+---
+
+## Sources CRUD (Admin)
+
+After activating the plugin, you can manage RSS sources in the WordPress admin menu:
+
+- `Editorio`
+
+The page includes list/create/update/delete operations backed by the REST API:
+
+- `GET /wp-json/editorio/v1/sources`
+- `GET /wp-json/editorio/v1/sources/{id}`
+- `POST /wp-json/editorio/v1/sources`
+- `PUT /wp-json/editorio/v1/sources/{id}`
+- `DELETE /wp-json/editorio/v1/sources/{id}`
+
+Required payload fields for create/update:
+
+- `name` (string)
+- `feed_url` (valid URL)
+- `is_active` (boolean)

@@ -38,7 +38,7 @@ function SourcesApp() {
 			const response = await apiFetch({path: endpoint()});
 			setItems(Array.isArray(response) ? response : []);
 		} catch (err) {
-			setError(err?.message || 'Nao foi possivel carregar as fontes.');
+			setError(err?.message || 'Não foi possível carregar as fontes.');
 		} finally {
 			setLoading(false);
 		}
@@ -76,7 +76,7 @@ function SourcesApp() {
 			resetForm();
 			await load();
 		} catch (err) {
-			setError(err?.message || 'Nao foi possivel salvar a fonte.');
+			setError(err?.message || 'Não foi possível salvar a fonte.');
 		} finally {
 			setSubmitting(false);
 		}
@@ -110,7 +110,7 @@ function SourcesApp() {
 
 			await load();
 		} catch (err) {
-			setError(err?.message || 'Nao foi possivel excluir a fonte.');
+			setError(err?.message || 'Nao foi possível excluir a fonte.');
 		}
 	};
 
@@ -177,7 +177,7 @@ function SourcesApp() {
 							<th>Nome</th>
 							<th>Feed URL</th>
 							<th>Status</th>
-							<th>Acoes</th>
+							<th>Ações</th>
 						</tr>
 						</thead>
 						<tbody>

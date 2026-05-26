@@ -16,13 +16,16 @@ final class CollectorModule implements ModuleInterface
 
     private CollectorHooks $hooks;
 
+    private CollectorService $service;
+
     public function __construct()
     {
         $repository = new CollectorRepository();
-        $service = new CollectorService($repository);
+        $this->service = new CollectorService($repository);
 
-        $this->controller = new CollectorController($service);
+        $this->controller = new CollectorController($this->service);
         $this->hooks = new CollectorHooks();
+        $this->hooks->set_service($this->service);
     }
 
     public function get_slug(): string

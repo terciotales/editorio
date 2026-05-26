@@ -5,6 +5,7 @@ use Editorio\Modules\AI\Service\AIService;
 use WP_REST_Request;
 use WP_REST_Response;
 use WP_REST_Server;
+
 final class AIController
 {
     private AIService $service;
@@ -42,15 +43,11 @@ final class AIController
     }
     public function get_settings(WP_REST_Request $request): WP_REST_Response
     {
-        $settings = $this->service->get_settings();
-        unset($settings['api_key']);
-        return new WP_REST_Response($settings);
+        return new WP_REST_Response($this->service->get_settings());
     }
     public function save_settings(WP_REST_Request $request): WP_REST_Response
     {
-        $settings = $this->service->save_settings($this->extract_settings($request));
-        unset($settings['api_key']);
-        return new WP_REST_Response($settings);
+        return new WP_REST_Response($this->service->save_settings($this->extract_settings($request)));
     }
     public function rewrite(WP_REST_Request $request): WP_REST_Response
     {
@@ -64,12 +61,7 @@ final class AIController
     {
         return [
             'enabled' => (bool) $request->get_param('enabled'),
-            'provider' => (string) $request->get_param('provider'),
-            'api_key' => (string) $request->get_param('api_key'),
-            'model' => (string) $request->get_param('model'),
-            'endpoint' => (string) $request->get_param('endpoint'),
-            'temperature' => $request->get_param('temperature'),
-            'max_tokens' => $request->get_param('max_tokens'),
+            'system_instruction' => (string) $request->get_param('system_instruction'),
         ];
     }
 }

@@ -1,24 +1,26 @@
 <?php
 declare(strict_types=1);
 namespace Editorio\Modules\AI\Service;
-use Editorio\Modules\AI\Provider\AIProviderFactory;
 use Editorio\Modules\AI\Repository\AISettingsRepository;
-use RuntimeException;
+
 final class AIService
 {
     private AISettingsRepository $settings_repository;
-    private AIProviderFactory $provider_factory;
-    public function __construct(AISettingsRepository $settings_repository, AIProviderFactory $provider_factory)
+    public function __construct(AISettingsRepository $settings_repository)
     {
         $this->settings_repository = $settings_repository;
-        $this->provider_factory = $provider_factory;
     }
     /**
      * @return array<string,mixed>
      */
     public function get_settings(): array
     {
-        return $this->settings_repository->get_settings();
+        return array_merge(
+            $this->settings_repository->get_settings(),
+            [
+                'dependency' => $this->get_dependency_status(),
+            ]
+        );
     }
     /**
      * @param array<string,mixed> $settings
@@ -28,7 +30,32 @@ final class AIService
     public function save_settings(array $settings): array
     {
         $this->settings_repository->save_settings($settings);
-        return $this->settings_repository->get_settings();
+        return $this->get_settings();
+    }
+    /**
+     * @return array{available:bool,has_credentials:bool,has_valid_credentials:bool,connectors_url:string}
+     */
+    public function get_dependency_status(): array
+    {
+        $available = function_exists('WordPress\\AI\\get_ai_service')
+            && function_exists('WordPress\\AI\\has_ai_credentials')
+            && function_exists('WordPress\\AI\\has_valid_ai_credentials')
+            && function_exists('WordPress\\AI\\get_provider_availability_data');
+        if (! $available) {
+            return [
+                'available' => false,
+                'has_credentials' => false,
+                'has_valid_credentials' => false,
+                'connectors_url' => admin_url('options-connectors.php'),
+            ];
+        }
+        $provider_data = \WordPress\AI\get_provider_availability_data();
+        return [
+            'available' => true,
+            'has_credentials' => (bool) \WordPress\AI\has_ai_credentials(),
+            'has_valid_credentials' => (bool) \WordPress\AI\has_valid_ai_credentials(),
+            'connectors_url' => (string) ($provider_data['connectorsUrl'] ?? admin_url('options-connectors.php')),
+        ];
     }
     /**
      * @return array<string,mixed>
@@ -49,25 +76,30 @@ final class AIService
                 'error' => __('AI is disabled in settings.', 'editorio'),
             ];
         }
-        $provider = $this->provider_factory->create($settings);
-        $messages = [
-            [
-                'role' => 'system',
-                'content' => 'Rewrite the following news article in a completely original way. Do not copy phrases. Keep factual accuracy. Use neutral journalistic tone. Output in HTML.',
-            ],
-            [
-                'role' => 'user',
-                'content' => $content,
-            ],
-        ];
+        $dependency = $this->get_dependency_status();
+        if (! $dependency['available']) {
+            return [
+                'success' => false,
+                'error' => __('WordPress AI plugin is not active. Activate it to use Editorio AI.', 'editorio'),
+            ];
+        }
+        if (! $dependency['has_credentials']) {
+            return [
+                'success' => false,
+                'error' => __('No AI connector configured. Configure a provider in the WordPress AI connectors screen.', 'editorio'),
+            ];
+        }
+        if (! $dependency['has_valid_credentials']) {
+            return [
+                'success' => false,
+                'error' => __('AI connector credentials are invalid or unavailable for text generation.', 'editorio'),
+            ];
+        }
         try {
-            $response = $provider->generate($messages, [
-                'model' => (string) $settings['model'],
-                'temperature' => (float) $settings['temperature'],
-                'max_tokens' => (int) $settings['max_tokens'],
-                'timeout' => 45,
-            ]);
-        } catch (RuntimeException $exception) {
+            $response = \WordPress\AI\get_ai_service()->create_textgen_prompt($content, [
+                'system_instruction' => (string) $settings['system_instruction'],
+            ])->generate_text();
+        } catch (\Throwable $exception) {
             return [
                 'success' => false,
                 'error' => $exception->getMessage(),

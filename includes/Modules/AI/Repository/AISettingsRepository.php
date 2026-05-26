@@ -22,9 +22,6 @@ final class AISettingsRepository
     {
         $current = $this->get_settings();
         $merged = array_merge($current, $settings);
-        if (array_key_exists('api_key', $settings) && (string) $settings['api_key'] === '') {
-            $merged['api_key'] = (string) ($current['api_key'] ?? '');
-        }
         return update_option(self::OPTION_KEY, $this->sanitize_settings($merged));
     }
     /**
@@ -34,12 +31,7 @@ final class AISettingsRepository
     {
         return [
             'enabled' => false,
-            'provider' => 'openai',
-            'api_key' => '',
-            'model' => 'gpt-4o-mini',
-            'endpoint' => 'https://api.openai.com/v1/chat/completions',
-            'temperature' => 0.2,
-            'max_tokens' => 1200,
+            'system_instruction' => 'Rewrite the following news article in a completely original way. Do not copy phrases. Keep factual accuracy. Use neutral journalistic tone. Output in HTML.',
         ];
     }
     /**
@@ -52,12 +44,7 @@ final class AISettingsRepository
         $defaults = $this->get_defaults();
         return [
             'enabled' => ! empty($settings['enabled']),
-            'provider' => sanitize_key((string) ($settings['provider'] ?? $defaults['provider'])),
-            'api_key' => sanitize_text_field((string) ($settings['api_key'] ?? '')),
-            'model' => sanitize_text_field((string) ($settings['model'] ?? $defaults['model'])),
-            'endpoint' => esc_url_raw((string) ($settings['endpoint'] ?? $defaults['endpoint'])),
-            'temperature' => (float) ($settings['temperature'] ?? $defaults['temperature']),
-            'max_tokens' => max(1, (int) ($settings['max_tokens'] ?? $defaults['max_tokens'])),
+            'system_instruction' => sanitize_textarea_field((string) ($settings['system_instruction'] ?? $defaults['system_instruction'])),
         ];
     }
 }

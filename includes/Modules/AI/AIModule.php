@@ -4,9 +4,9 @@ namespace Editorio\Modules\AI;
 use Editorio\Common\Contracts\ModuleInterface;
 use Editorio\Modules\AI\Controller\AIController;
 use Editorio\Modules\AI\Hooks\AIHooks;
-use Editorio\Modules\AI\Provider\AIProviderFactory;
 use Editorio\Modules\AI\Repository\AISettingsRepository;
 use Editorio\Modules\AI\Service\AIService;
+
 final class AIModule implements ModuleInterface
 {
     private AIController $controller;
@@ -14,8 +14,7 @@ final class AIModule implements ModuleInterface
     public function __construct()
     {
         $settings_repository = new AISettingsRepository();
-        $provider_factory = new AIProviderFactory();
-        $service = new AIService($settings_repository, $provider_factory);
+        $service = new AIService($settings_repository);
         $this->controller = new AIController($service);
         $this->hooks = new AIHooks($service);
     }

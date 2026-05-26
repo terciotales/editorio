@@ -1,219 +1,725 @@
 import apiFetch from '@wordpress/api-fetch';
 import domReady from '@wordpress/dom-ready';
-import {createRoot, useEffect, useState} from '@wordpress/element';
+import {Page} from '@wordpress/admin-ui';
+import {createRoot, useEffect, useMemo, useRef, useState} from '@wordpress/element';
+import {Button, Card, Link, Notice, Stack} from '@wordpress/ui';
+import {Spinner, ToggleControl} from '@wordpress/components';
 import '../../../css/modules/sources/index.scss';
 
-const config = window.editorioSourcesConfig || {restNamespace: '/editorio/v1', nonce: ''};
+const config = window.editorioSourcesConfig || {
+	restNamespace: '/editorio/v1',
+	nonce: '',
+	messages: {},
+};
 
-if (config.nonce) {
-	apiFetch.use((options, next) => {
+if ( config.nonce ) {
+	apiFetch.use( ( options, next ) => {
 		const headers = {
-			...(options.headers || {}),
+			...( options.headers || {} ),
 			'X-WP-Nonce': config.nonce,
 		};
 
-		return next({...options, headers});
-	});
+		return next( { ...options, headers } );
+	} );
 }
 
-const endpoint = (path = '') => `${config.restNamespace}/sources${path}`;
+const endpoint = ( path = '' ) => `${ config.restNamespace }/sources${ path }`;
 
-function SourcesApp() {
-	const [items, setItems] = useState([]);
-	const [loading, setLoading] = useState(true);
-	const [submitting, setSubmitting] = useState(false);
-	const [error, setError] = useState('');
-	const [editingId, setEditingId] = useState(null);
-	const [form, setForm] = useState({
+function message( key, fallback ) {
+	return config.messages && config.messages[ key ]
+		? config.messages[ key ]
+		: fallback;
+}
+
+function initialForm() {
+	return {
 		name: '',
 		feed_url: '',
 		is_active: true,
-	});
+	};
+}
+
+function SourcesApp() {
+	const [ items, setItems ] = useState( [] );
+	const [ loading, setLoading ] = useState( true );
+	const [ submitting, setSubmitting ] = useState( false );
+	const [ error, setError ] = useState( '' );
+	const [ editingId, setEditingId ] = useState( null );
+	const [ pendingDelete, setPendingDelete ] = useState( null );
+	const [ deleteAnchor, setDeleteAnchor ] = useState( null );
+	const [ isFormOpen, setIsFormOpen ] = useState( false );
+	const [ form, setForm ] = useState( initialForm() );
+	const [ toast, setToast ] = useState( null );
+	const toastTimeout = useRef( null );
+
+	const totalCount = items.length;
+	const activeCount = useMemo(
+		() => items.filter( ( item ) => item.is_active ).length,
+		[ items ]
+	);
+	const isEditing = editingId !== null;
+	let submitLabel = message( 'create', 'Criar' );
+	if ( submitting ) {
+		submitLabel = message( 'saving', 'Salvando...' );
+	} else if ( isEditing ) {
+		submitLabel = message( 'update', 'Atualizar' );
+	}
+	const deletePromptText = pendingDelete?.name
+		? message( 'deletePrompt', `Excluir "${ pendingDelete.name }"?` )
+		: message( 'deletePromptFallback', 'Excluir esta fonte?' );
+	const deleteAnchorRect = deleteAnchor
+		? deleteAnchor.getBoundingClientRect()
+		: null;
+	const deletePopupStyle = deleteAnchorRect
+		? {
+				position: 'fixed',
+				top: `${ deleteAnchorRect.bottom + 8 }px`,
+				left: `${ deleteAnchorRect.right }px`,
+				transform: 'translateX(-100%)',
+		  }
+		: null;
+
+	useEffect( () => {
+		return () => {
+			if ( toastTimeout.current ) {
+				clearTimeout( toastTimeout.current );
+			}
+		};
+	}, [] );
+
+	const showToast = ( intent, text ) => {
+		if ( toastTimeout.current ) {
+			clearTimeout( toastTimeout.current );
+		}
+
+		setToast( { intent, text } );
+		toastTimeout.current = setTimeout( () => {
+			setToast( null );
+			toastTimeout.current = null;
+		}, 3500 );
+	};
 
 	const load = async () => {
-		setLoading(true);
-		setError('');
+		setLoading( true );
+		setError( '' );
 
 		try {
-			const response = await apiFetch({path: endpoint()});
-			setItems(Array.isArray(response) ? response : []);
-		} catch (err) {
-			setError(err?.message || 'Não foi possível carregar as fontes.');
+			const response = await apiFetch( { path: endpoint() } );
+			setItems( Array.isArray( response ) ? response : [] );
+		} catch ( err ) {
+			setError(
+				err?.message ||
+					message(
+						'loadError',
+						'Não foi possível carregar as fontes.'
+					)
+			);
 		} finally {
-			setLoading(false);
+			setLoading( false );
 		}
 	};
 
-	useEffect(() => {
-		load();
-	}, []);
+	useEffect( () => {
+		void load();
+	}, [] );
 
-	const resetForm = () => {
-		setEditingId(null);
-		setForm({name: '', feed_url: '', is_active: true});
+	const openCreateModal = () => {
+		setPendingDelete( null );
+		setEditingId( null );
+		setForm( initialForm() );
+		setIsFormOpen( true );
 	};
 
-	const onSubmit = async (event) => {
-		event.preventDefault();
-		setSubmitting(true);
-		setError('');
-
-		try {
-			if (editingId) {
-				await apiFetch({
-					path: endpoint(`/${editingId}`),
-					method: 'PUT',
-					data: form,
-				});
-			} else {
-				await apiFetch({
-					path: endpoint(),
-					method: 'POST',
-					data: form,
-				});
-			}
-
-			resetForm();
-			await load();
-		} catch (err) {
-			setError(err?.message || 'Não foi possível salvar a fonte.');
-		} finally {
-			setSubmitting(false);
-		}
-	};
-
-	const onEdit = (item) => {
-		setEditingId(item.id);
-		setForm({
+	const openEditModal = ( item ) => {
+		setPendingDelete( null );
+		setEditingId( item.id );
+		setForm( {
 			name: item.name || '',
 			feed_url: item.feed_url || '',
-			is_active: !!item.is_active,
-		});
+			is_active: !! item.is_active,
+		} );
+		setIsFormOpen( true );
 	};
 
-	const onDelete = async (id) => {
-		if (!window.confirm('Tem certeza que deseja excluir esta fonte?')) {
+	const closeFormModal = () => {
+		setIsFormOpen( false );
+		setEditingId( null );
+		setForm( initialForm() );
+	};
+
+	const resetForm = () => {
+		setEditingId( null );
+		setForm( initialForm() );
+	};
+
+	const upsertItem = ( id, updater ) => {
+		setItems( ( current ) =>
+			current.map( ( item ) =>
+				item.id === id ? updater( item ) : item
+			)
+		);
+	};
+
+	const saveSource = async ( payload, successMessage ) => {
+		setSubmitting( true );
+		setError( '' );
+
+		try {
+			const response = await apiFetch( payload );
+			showToast( 'success', successMessage );
+			return response;
+		} catch ( err ) {
+			showToast(
+				'error',
+				err?.message ||
+					message( 'saveError', 'Não foi possível salvar a fonte.' )
+			);
+			throw err;
+		} finally {
+			setSubmitting( false );
+		}
+	};
+
+	const onSubmit = async ( event ) => {
+		event.preventDefault();
+
+		try {
+			if ( isEditing ) {
+				await saveSource(
+					{
+						path: endpoint( `/${ editingId }` ),
+						method: 'PUT',
+						data: form,
+					},
+					message( 'updatedSuccess', 'Fonte atualizada com sucesso.' )
+				);
+			} else {
+				await saveSource(
+					{
+						path: endpoint(),
+						method: 'POST',
+						data: form,
+					},
+					message( 'createdSuccess', 'Fonte criada com sucesso.' )
+				);
+			}
+
+			closeFormModal();
+			await load();
+		} catch {
+			// Toast already handled in saveSource.
+		}
+	};
+
+	const toggleActive = async ( item, nextValue ) => {
+		setError( '' );
+		upsertItem( item.id, ( current ) => ( {
+			...current,
+			is_active: nextValue,
+		} ) );
+
+		try {
+			await apiFetch( {
+				path: endpoint( `/${ item.id }` ),
+				method: 'PUT',
+				data: {
+					name: item.name || '',
+					feed_url: item.feed_url || '',
+					is_active: nextValue,
+				},
+			} );
+
+			showToast(
+				'success',
+				nextValue
+					? message(
+							'activatedSuccess',
+							'Fonte ativada com sucesso.'
+					  )
+					: message(
+							'deactivatedSuccess',
+							'Fonte desativada com sucesso.'
+					  )
+			);
+		} catch ( err ) {
+			upsertItem( item.id, ( current ) => ( {
+				...current,
+				is_active: ! nextValue,
+			} ) );
+			showToast(
+				'error',
+				err?.message ||
+					message(
+						'toggleError',
+						'Não foi possível alterar o status da fonte.'
+					)
+			);
+		}
+	};
+
+	const requestDelete = ( item, event ) => {
+		setPendingDelete( item );
+		setDeleteAnchor( event.currentTarget );
+	};
+
+	const cancelDelete = () => {
+		setPendingDelete( null );
+		setDeleteAnchor( null );
+	};
+
+	const confirmDelete = async () => {
+		if ( ! pendingDelete ) {
 			return;
 		}
 
-		setError('');
+		const id = pendingDelete.id;
+		setError( '' );
 
 		try {
-			await apiFetch({
-				path: endpoint(`/${id}`),
+			await apiFetch( {
+				path: endpoint( `/${ id }` ),
 				method: 'DELETE',
-			});
+			} );
 
-			if (editingId === id) {
+			if ( editingId === id ) {
 				resetForm();
+				setIsFormOpen( false );
 			}
 
+			showToast(
+				'success',
+				message( 'deletedSuccess', 'Fonte excluída com sucesso.' )
+			);
+			cancelDelete();
 			await load();
-		} catch (err) {
-			setError(err?.message || 'Nao foi possível excluir a fonte.');
+		} catch ( err ) {
+			cancelDelete();
+			showToast(
+				'error',
+				err?.message ||
+					message(
+						'deleteError',
+						'Não foi possível excluir a fonte.'
+					)
+			);
 		}
 	};
 
 	return (
-		<div className="editorio-sources">
-			<form className="editorio-sources__form" onSubmit={onSubmit}>
-				<h2>{editingId ? 'Editar fonte' : 'Nova fonte'}</h2>
-
-				<label>
-					Nome
-					<input
-						type="text"
-						value={form.name}
-						onChange={(event) => setForm({...form, name: event.target.value})}
-						required
-					/>
-				</label>
-
-				<label>
-					Feed URL
-					<input
-						type="url"
-						value={form.feed_url}
-						onChange={(event) => setForm({...form, feed_url: event.target.value})}
-						required
-					/>
-				</label>
-
-				<label className="editorio-sources__checkbox">
-					<input
-						type="checkbox"
-						checked={form.is_active}
-						onChange={(event) => setForm({...form, is_active: event.target.checked})}
-					/>
-					Ativa
-				</label>
-
-				<div className="editorio-sources__actions">
-					<button type="submit" className="button button-primary" disabled={submitting}>
-						{submitting ? 'Salvando...' : editingId ? 'Atualizar' : 'Criar'}
-					</button>
-					{editingId ? (
-						<button type="button" className="button" onClick={resetForm}>
-							Cancelar
-						</button>
-					) : null}
+		<Page
+			title={ message( 'pageTitle', 'Fontes' ) }
+			subTitle={ message(
+				'pageSubtitle',
+				'Gerencie feeds, status e conteúdo de origem em um painel mais organizado.'
+			) }
+			actions={
+				<div className="editorio-sources-page__page-actions">
+					<Button variant="primary" onClick={ openCreateModal }>
+						{ message( 'addSource', 'Adicionar fonte' ) }
+					</Button>
+					<Stack align="center" gap="xl" direction="row">
+						<Button
+							variant="secondary"
+							disabled={ loading || submitting }
+							onClick={ () => {
+								void load();
+							} }
+						>
+							{ message( 'refresh', 'Atualizar' ) }
+						</Button>
+						<Link href="https://wordpress.org/news/" openInNewTab>
+							{ message( 'docs', 'Ver exemplo' ) }
+						</Link>
+					</Stack>
 				</div>
-			</form>
+			}
+		>
+			<Stack
+				className="editorio-sources-page"
+				direction="column"
+				gap="md"
+			>
+				<Card.Root>
+					<Card.Content>
+						<Stack direction="column" gap="sm">
+							<Notice.Root intent="info">
+								<Notice.Description>
+									{ message(
+										'overview',
+										'Use o painel para cadastrar, editar e ativar fontes de conteúdo.'
+									) }
+								</Notice.Description>
+							</Notice.Root>
 
-			<section className="editorio-sources__list">
-				<h2>Fontes cadastradas</h2>
+							<div className="editorio-sources-page__stats">
+								<div>
+									<strong>{ totalCount }</strong>
+									<span>
+										{ message(
+											'totalLabel',
+											'Total de fontes'
+										) }
+									</span>
+								</div>
+								<div>
+									<strong>{ activeCount }</strong>
+									<span>
+										{ message(
+											'activeLabel',
+											'Fontes ativas'
+										) }
+									</span>
+								</div>
+							</div>
+						</Stack>
+					</Card.Content>
+				</Card.Root>
 
-				{error ? <p className="editorio-sources__error">{error}</p> : null}
+				<Card.Root>
+					<Card.Content>
+						<Stack direction="column" gap="sm">
+							<div className="editorio-sources-page__list-header">
+								<div>
+									<h2>
+										{ message(
+											'listTitle',
+											'Fontes cadastradas'
+										) }
+									</h2>
+									<p>
+										{ message(
+											'listHint',
+											'Edite, desative ou remova itens sem sair da página.'
+										) }
+									</p>
+								</div>
+							</div>
 
-				{loading ? <p>Carregando...</p> : null}
+							{ error ? (
+								<Notice.Root intent="error">
+									<Notice.Description>
+										{ error }
+									</Notice.Description>
+								</Notice.Root>
+							) : null }
 
-				{!loading && items.length === 0 ? <p>Nenhuma fonte cadastrada ainda.</p> : null}
+							{ loading ? (
+								<div className="editorio-sources-page__loading">
+									<Spinner />
+								</div>
+							) : null }
 
-				{!loading && items.length > 0 ? (
-					<table className="widefat striped">
-						<thead>
-						<tr>
-							<th>ID</th>
-							<th>Nome</th>
-							<th>Feed URL</th>
-							<th>Status</th>
-							<th>Ações</th>
-						</tr>
-						</thead>
-						<tbody>
-						{items.map((item) => (
-							<tr key={item.id}>
-								<td>{item.id}</td>
-								<td>{item.name}</td>
-								<td>{item.feed_url}</td>
-								<td>{item.is_active ? 'Ativa' : 'Inativa'}</td>
-								<td className="editorio-sources__table-actions">
-									<button type="button" className="button button-small" onClick={() => onEdit(item)}>
-										Editar
-									</button>
-									<button
-										type="button"
-										className="button button-small"
-										onClick={() => onDelete(item.id)}
-									>
-										Excluir
-									</button>
-								</td>
-							</tr>
-						))}
-						</tbody>
-					</table>
-				) : null}
-			</section>
-		</div>
+							{ ! loading && items.length === 0 ? (
+								<div className="editorio-sources-page__empty">
+									<p>
+										{ message(
+											'emptyState',
+											'Nenhuma fonte cadastrada ainda. Clique em “Adicionar fonte” para criar a primeira.'
+										) }
+									</p>
+								</div>
+							) : null }
+
+							{ ! loading && items.length > 0 ? (
+								<div className="editorio-sources-page__table-wrap">
+									<table className="widefat striped editorio-sources-page__table">
+										<thead>
+											<tr>
+												<th>
+													{ message(
+														'nameColumn',
+														'Nome'
+													) }
+												</th>
+												<th>
+													{ message(
+														'feedColumn',
+														'Feed URL'
+													) }
+												</th>
+												<th>
+													{ message(
+														'statusColumn',
+														'Status'
+													) }
+												</th>
+												<th>
+													{ message(
+														'actionsColumn',
+														'Ações'
+													) }
+												</th>
+											</tr>
+										</thead>
+										<tbody>
+											{ items.map( ( item ) => (
+												<tr key={ item.id }>
+													<td>{ item.name }</td>
+													<td className="editorio-sources-page__feed-cell">
+														{ item.feed_url }
+													</td>
+													<td className="editorio-sources-page__toggle-cell">
+														<ToggleControl
+															label={ message(
+																'statusToggleLabel',
+																'Ativar fonte'
+															) }
+															checked={
+																!! item.is_active
+															}
+															disabled={ submitting }
+															onChange={ (
+																value
+															) => {
+																void toggleActive(
+																	item,
+																	!! value
+																);
+															} }
+														/>
+													</td>
+													<td className="editorio-sources-page__table-actions">
+														<Button
+															variant="secondary"
+															size="small"
+															onClick={ () =>
+																openEditModal(
+																	item
+																)
+															}
+														>
+															{ message(
+																'edit',
+																'Editar'
+															) }
+														</Button>
+														<Button
+															variant="secondary"
+															size="small"
+															onClick={ (
+																event
+															) =>
+																requestDelete(
+																	item,
+																	event
+																)
+															}
+														>
+															{ message(
+																'delete',
+																'Excluir'
+															) }
+														</Button>
+													</td>
+												</tr>
+											) ) }
+										</tbody>
+									</table>
+								</div>
+							) : null }
+						</Stack>
+					</Card.Content>
+				</Card.Root>
+
+				{ toast ? (
+					<div className="editorio-sources-page__toast">
+						<Notice.Root intent={ toast.intent }>
+							<Notice.Description>
+								{ toast.text }
+							</Notice.Description>
+						</Notice.Root>
+					</div>
+				) : null }
+			</Stack>
+
+			{ pendingDelete && deletePopupStyle ? (
+				<div className="editorio-sources-page__delete-popup-root">
+					<button
+						type="button"
+						className="editorio-sources-page__overlay"
+						aria-label={ message( 'close', 'Fechar' ) }
+						onClick={ cancelDelete }
+					/>
+					<div
+						className="editorio-sources-page__delete-popover"
+						style={ deletePopupStyle }
+					>
+						<Notice.Root intent="warning">
+							<Notice.Description>
+								{ deletePromptText }
+							</Notice.Description>
+						</Notice.Root>
+						<div className="editorio-sources-page__delete-actions">
+							<Button variant="primary" onClick={ confirmDelete }>
+								{ message( 'delete', 'Excluir' ) }
+							</Button>
+							<Button
+								variant="secondary"
+								onClick={ cancelDelete }
+							>
+								{ message( 'cancel', 'Cancelar' ) }
+							</Button>
+						</div>
+					</div>
+				</div>
+			) : null }
+
+			{ isFormOpen ? (
+				<div className="editorio-sources-page__overlay-root">
+					<button
+						type="button"
+						className="editorio-sources-page__overlay"
+						aria-label={ message( 'close', 'Fechar' ) }
+						onClick={ closeFormModal }
+					/>
+					<div
+						className="editorio-sources-page__dialog"
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="editorio-sources-modal-title"
+					>
+						<Card.Root>
+							<Card.Content>
+								<Stack direction="column" gap="sm">
+									<div className="editorio-sources-page__dialog-header">
+										<div>
+											<h2 id="editorio-sources-modal-title">
+												{ isEditing
+													? message(
+															'editTitle',
+															'Editar fonte'
+													  )
+													: message(
+															'createTitle',
+															'Nova fonte'
+													  ) }
+											</h2>
+											<p className="editorio-sources-page__modal-hint">
+												{ message(
+													'formHint',
+													'Preencha os dados do feed para manter a lista fácil de revisar.'
+												) }
+											</p>
+										</div>
+										<Button
+											variant="secondary"
+											onClick={ closeFormModal }
+										>
+											{ message( 'close', 'Fechar' ) }
+										</Button>
+									</div>
+
+									<form onSubmit={ onSubmit }>
+										<Stack direction="column" gap="sm">
+											<label
+												className="editorio-sources-page__field"
+												htmlFor="editorio-source-name"
+											>
+												<span>
+													{ message(
+														'nameLabel',
+														'Nome'
+													) }
+												</span>
+												<input
+													id="editorio-source-name"
+													type="text"
+													value={ form.name }
+													onChange={ ( event ) =>
+														setForm( {
+															...form,
+															name: event.target
+																.value,
+														} )
+													}
+													required
+													disabled={ submitting }
+												/>
+											</label>
+
+											<label
+												className="editorio-sources-page__field"
+												htmlFor="editorio-source-feed-url"
+											>
+												<span>
+													{ message(
+														'feedLabel',
+														'Feed URL'
+													) }
+												</span>
+												<input
+													id="editorio-source-feed-url"
+													type="url"
+													value={ form.feed_url }
+													onChange={ ( event ) =>
+														setForm( {
+															...form,
+															feed_url:
+																event.target
+																	.value,
+														} )
+													}
+													required
+													disabled={ submitting }
+												/>
+											</label>
+
+											<ToggleControl
+												label={ message(
+													'activeLabelToggle',
+													'Fonte ativa'
+												) }
+												help={ message(
+													'activeHelp',
+													'Fontes ativas podem ser usadas no processamento.'
+												) }
+												checked={ form.is_active }
+												onChange={ ( value ) =>
+													setForm( {
+														...form,
+														is_active: !! value,
+													} )
+												}
+												disabled={ submitting }
+											/>
+
+											<div className="editorio-sources-page__actions">
+												<Button
+													variant="primary"
+													type="submit"
+													disabled={ submitting }
+												>
+													{ submitLabel }
+												</Button>
+												<Button
+													variant="secondary"
+													type="button"
+													disabled={ submitting }
+													onClick={ closeFormModal }
+												>
+													{ message(
+														'cancel',
+														'Cancelar'
+													) }
+												</Button>
+											</div>
+										</Stack>
+									</form>
+								</Stack>
+							</Card.Content>
+						</Card.Root>
+					</div>
+				</div>
+			) : null }
+		</Page>
 	);
 }
 
-domReady(() => {
-	const container = document.getElementById('editorio-sources-app');
-	if (!container) {
+domReady( () => {
+	const container = document.getElementById( 'editorio-sources-app' );
+	if ( ! container ) {
 		return;
 	}
 
-	createRoot(container).render(<SourcesApp/>);
-});
+	createRoot( container ).render( <SourcesApp /> );
+} );

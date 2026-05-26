@@ -1,0 +1,39 @@
+.editorio-ai-settings-page {
+	display: grid;
+	box-sizing: border-box;
+	margin: 0 auto;
+	max-width: 680px;
+	padding: 24px;
+	width: 100%;
+}
+
+.editorio-ai-settings-page__visual {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	border-radius: 999px;
+	background: #1d2327;
+	color: #fff;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+}
+
+.editorio-ai-settings-page__hint {
+	margin: 0;
+}
+
+.editorio-ai-settings-page__actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.editorio-ai-settings-page__snackbar {
+	position: fixed;
+	inset-inline-end: 16px;
+	bottom: 16px;
+	z-index: 100000;
+	min-width: 280px;
+}

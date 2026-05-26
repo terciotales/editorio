@@ -6,6 +6,7 @@ namespace Editorio;
 
 use Editorio\Common\Assets;
 use Editorio\Common\ModuleLoader;
+use Editorio\Modules\AI\AIModule;
 use Editorio\Modules\Collector\CollectorModule;
 use Editorio\Modules\Draft\DraftModule;
 use Editorio\Modules\Processor\ProcessorModule;
@@ -25,6 +26,7 @@ final class Plugin
     {
         $this->module_loader = new ModuleLoader([
             new SourcesModule(),
+            new AIModule(),
             new CollectorModule(),
             new ProcessorModule(),
             new DraftModule(),

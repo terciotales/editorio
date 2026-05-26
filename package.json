@@ -1,20 +1,25 @@
 {
-  "name": "editorio",
-  "version": "0.1.0",
-  "description": "Editorio WordPress plugin assets",
-  "license": "GPL-2.0-or-later",
-  "scripts": {
-    "start": "wp-scripts start --webpack-src-dir=src --output-path=bundle",
-    "build": "wp-scripts build --webpack-src-dir=src --output-path=bundle",
-    "lint:js": "wp-scripts lint-js src",
-    "lint:css": "wp-scripts lint-style 'src/**/*.scss'",
-    "release": "bash ./build-release.sh"
-  },
-  "devDependencies": {
-    "@wordpress/api-fetch": "^7.44.0",
-    "@wordpress/dom-ready": "^4.44.0",
-    "@wordpress/element": "^6.44.0",
-    "@wordpress/scripts": "^32.0.0",
-    "sass": "^1.77.0"
-  }
+    "name": "editorio",
+    "version": "0.1.0",
+    "description": "Editorio WordPress plugin assets",
+    "license": "GPL-2.0-or-later",
+    "scripts": {
+        "start": "wp-scripts start --webpack-src-dir=src --output-path=bundle",
+        "build": "wp-scripts build --webpack-src-dir=src --output-path=bundle",
+        "lint:js": "wp-scripts lint-js src",
+        "lint:css": "wp-scripts lint-style 'src/**/*.scss'",
+        "release": "bash ./build-release.sh"
+    },
+    "devDependencies": {
+        "@wordpress/admin-ui": "^2.1.0",
+        "@wordpress/api-fetch": "^7.46.0",
+        "@wordpress/components": "^33.1.0",
+        "@wordpress/data": "^10.46.0",
+        "@wordpress/dom-ready": "^4.46.0",
+        "@wordpress/element": "^6.46.0",
+        "@wordpress/notices": "^5.46.0",
+        "@wordpress/scripts": "^32.2.0",
+        "@wordpress/ui": "^0.13.0",
+        "sass": "^1.77.0"
+    }
 }

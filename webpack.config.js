@@ -16,10 +16,15 @@ module.exports = {
       'modules/sources/index': path.resolve(process.cwd(), 'src/js/modules/sources/index.js'),
       'modules/draft/index': path.resolve(process.cwd(), 'src/js/modules/draft/index.js'),
       'modules/review/index': path.resolve(process.cwd(), 'src/js/modules/review/index.js'),
+      'modules/ai-settings/index': path.resolve(process.cwd(), 'src/js/modules/ai-settings/index.js'),
     };
   },
   output: {
     ...defaultConfig.output,
     path: path.resolve(process.cwd(), 'bundle'),
+  },
+  optimization: {
+    ...defaultConfig.optimization,
+    concatenateModules: false,
   },
 };

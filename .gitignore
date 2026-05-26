@@ -53,3 +53,6 @@
 !/.idea/externalDependencies.xml
 
 ### Não organizados
+/.claude
+/graphify-out
+/venv

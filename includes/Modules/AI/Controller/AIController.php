@@ -61,7 +61,8 @@ final class AIController
     {
         return [
             'enabled' => (bool) $request->get_param('enabled'),
-            'system_instruction' => (string) $request->get_param('system_instruction'),
+            'rewrite_prompt' => (string) $request->get_param('rewrite_prompt'),
+            'curation_prompt' => (string) $request->get_param('curation_prompt'),
         ];
     }
 }

@@ -5,21 +5,25 @@ use Editorio\Modules\AI\Service\AIService;
 
 final class AIHooks
 {
+    private const PARENT_MENU_SLUG = 'editorio';
     private const MENU_SLUG = 'editorio-ai';
     private AIService $service;
+
     public function __construct(AIService $service)
     {
         $this->service = $service;
     }
+
     public function register(): void
     {
         add_action('admin_menu', [$this, 'register_admin_menu']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
     }
+
     public function register_admin_menu(): void
     {
         add_submenu_page(
-            'editorio-sources',
+            self::PARENT_MENU_SLUG,
             __('IA', 'editorio'),
             __('IA', 'editorio'),
             'manage_options',
@@ -27,10 +31,11 @@ final class AIHooks
             [$this, 'render_page']
         );
     }
+
     public function enqueue_admin_assets(string $hook_suffix): void
     {
         $is_target_page = isset($_GET['page']) && sanitize_key(wp_unslash((string) $_GET['page'])) === self::MENU_SLUG;
-        if (! $is_target_page && $hook_suffix !== 'editorio-sources_page_' . self::MENU_SLUG) {
+        if (! $is_target_page && $hook_suffix !== 'editorio_page_' . self::MENU_SLUG) {
             return;
         }
 
@@ -40,7 +45,8 @@ final class AIHooks
             'nonce' => wp_create_nonce('wp_rest'),
             'settings' => [
                 'enabled' => ! empty($settings['enabled']),
-                'system_instruction' => (string) ($settings['system_instruction'] ?? ''),
+                'rewrite_prompt' => (string) ($settings['rewrite_prompt'] ?? ''),
+                'curation_prompt' => (string) ($settings['curation_prompt'] ?? ''),
             ],
             'dependency' => $this->service->get_dependency_status(),
             'messages' => [
@@ -50,11 +56,15 @@ final class AIHooks
                 'toggleHelp' => __('Usar IA durante processamento de conteúdo.', 'editorio'),
                 'toggleEnabled' => __('AI enabled.', 'editorio'),
                 'toggleDisabled' => __('AI disabled.', 'editorio'),
-                'instructionLabel' => __('Instrução do sistema', 'editorio'),
-                'instructionHelp' => __('Prompt base para reescrita. Provedor e credenciais vêm do WordPress AI.', 'editorio'),
-                'instructionSaved' => __('System instruction saved.', 'editorio'),
+                'rewritePromptLabel' => __('Prompt de reescrita', 'editorio'),
+                'rewritePromptHelp' => __('Usado para reescrever notícias. Provedor e credenciais vêm do WordPress AI.', 'editorio'),
+                'rewritePromptSaved' => __('Prompt de reescrita salvo.', 'editorio'),
+                'curationPromptLabel' => __('Prompt de curadoria', 'editorio'),
+                'curationPromptHelp' => __('Usado apenas como nota editorial da síntese. A estrutura da curadoria permanece fixa e sempre gera novas pautas com fontes citadas.', 'editorio'),
+                'curationPromptSaved' => __('Prompt de curadoria salvo.', 'editorio'),
                 'saveError' => __('Falha ao salvar configurações.', 'editorio'),
-                'saveInstruction' => __('Salvar instrução', 'editorio'),
+                'saveRewritePrompt' => __('Salvar prompt de reescrita', 'editorio'),
+                'saveCurationPrompt' => __('Salvar prompt de curadoria', 'editorio'),
                 'manageConnectors' => __('Gerenciar conectores', 'editorio'),
                 'dependencyMissing' => __('Plugin WordPress AI não está ativo. Ative o plugin "AI" para habilitar este módulo.', 'editorio'),
                 'dependencyNoCredentials' => __('Nenhum conector de IA está configurado. Configure um provedor na tela de conectores.', 'editorio'),

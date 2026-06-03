@@ -13,7 +13,14 @@ final class AISettingsRepository
         if (! is_array($stored)) {
             $stored = [];
         }
-        return array_merge($this->get_defaults(), $stored);
+
+        $settings = array_merge($this->get_defaults(), $stored);
+        if (! isset($settings['rewrite_prompt']) && isset($settings['system_instruction'])) {
+            $settings['rewrite_prompt'] = (string) $settings['system_instruction'];
+        }
+        $settings['system_instruction'] = (string) ($settings['rewrite_prompt'] ?? '');
+
+        return $settings;
     }
     /**
      * @param array<string,mixed> $settings
@@ -31,7 +38,8 @@ final class AISettingsRepository
     {
         return [
             'enabled' => false,
-            'system_instruction' => 'Rewrite the following news article in a completely original way. Do not copy phrases. Keep factual accuracy. Use neutral journalistic tone. Output in HTML.',
+            'rewrite_prompt' => 'Rewrite the following news article in a completely original way. Do not copy phrases. Keep factual accuracy. Use neutral journalistic tone. Output in HTML.',
+            'curation_prompt' => 'Use this only as an editorial note. Always synthesize related news items into new headlines, explain why they belong together, and cite the source ids. Return only valid JSON with stories containing title, reason, and source_ids.',
         ];
     }
     /**
@@ -42,9 +50,14 @@ final class AISettingsRepository
     private function sanitize_settings(array $settings): array
     {
         $defaults = $this->get_defaults();
+
+        $rewrite_prompt = (string) ($settings['rewrite_prompt'] ?? $settings['system_instruction'] ?? $defaults['rewrite_prompt']);
+        $curation_prompt = (string) ($settings['curation_prompt'] ?? $defaults['curation_prompt']);
+
         return [
             'enabled' => ! empty($settings['enabled']),
-            'system_instruction' => sanitize_textarea_field((string) ($settings['system_instruction'] ?? $defaults['system_instruction'])),
+            'rewrite_prompt' => sanitize_textarea_field($rewrite_prompt),
+            'curation_prompt' => sanitize_textarea_field($curation_prompt),
         ];
     }
 }

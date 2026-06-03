@@ -7,6 +7,7 @@ namespace Editorio\Modules\Sources\Repository;
 final class SourcesRepository
 {
     private const TABLE_SUFFIX = 'editorio_sources';
+    private static bool $schema_checked = false;
 
     public function get_table_name(): string
     {
@@ -28,6 +29,7 @@ final class SourcesRepository
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             name VARCHAR(191) NOT NULL,
             feed_url VARCHAR(2083) NOT NULL,
+            news_limit INT NOT NULL DEFAULT 10,
             is_active TINYINT(1) NOT NULL DEFAULT 1,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
@@ -53,6 +55,7 @@ final class SourcesRepository
     public function list(array $filters = []): array
     {
         global $wpdb;
+        $this->ensure_schema();
 
         $table_name = $this->get_table_name();
         $where = [];
@@ -63,7 +66,7 @@ final class SourcesRepository
             $params[] = (int) $filters['is_active'];
         }
 
-        $sql = "SELECT id, name, feed_url, is_active, created_at, updated_at FROM {$table_name}";
+        $sql = "SELECT id, name, feed_url, news_limit, is_active, created_at, updated_at FROM {$table_name}";
         if (! empty($where)) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
@@ -90,10 +93,11 @@ final class SourcesRepository
     public function get_by_id(int $id): ?array
     {
         global $wpdb;
+        $this->ensure_schema();
 
         $table_name = $this->get_table_name();
         $prepared = $wpdb->prepare(
-            "SELECT id, name, feed_url, is_active, created_at, updated_at FROM {$table_name} WHERE id = %d LIMIT 1",
+            "SELECT id, name, feed_url, news_limit, is_active, created_at, updated_at FROM {$table_name} WHERE id = %d LIMIT 1",
             $id
         );
 
@@ -112,6 +116,7 @@ final class SourcesRepository
     public function exists_by_feed_url(string $feed_url, ?int $exclude_id = null): bool
     {
         global $wpdb;
+        $this->ensure_schema();
 
         $table_name = $this->get_table_name();
 
@@ -140,6 +145,7 @@ final class SourcesRepository
     public function create(array $data): ?array
     {
         global $wpdb;
+        $this->ensure_schema();
 
         $table_name = $this->get_table_name();
         $now = current_time('mysql');
@@ -149,11 +155,12 @@ final class SourcesRepository
             [
                 'name' => (string) $data['name'],
                 'feed_url' => (string) $data['feed_url'],
+                'news_limit' => (int) $data['news_limit'],
                 'is_active' => (int) $data['is_active'],
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
-            ['%s', '%s', '%d', '%s', '%s']
+            ['%s', '%s', '%d', '%d', '%s', '%s']
         );
 
         if ($inserted === false) {
@@ -166,6 +173,7 @@ final class SourcesRepository
     public function update(int $id, array $data): ?array
     {
         global $wpdb;
+        $this->ensure_schema();
 
         $table_name = $this->get_table_name();
 
@@ -174,11 +182,12 @@ final class SourcesRepository
             [
                 'name' => (string) $data['name'],
                 'feed_url' => (string) $data['feed_url'],
+                'news_limit' => (int) $data['news_limit'],
                 'is_active' => (int) $data['is_active'],
                 'updated_at' => current_time('mysql'),
             ],
             ['id' => $id],
-            ['%s', '%s', '%d', '%s'],
+            ['%s', '%s', '%d', '%d', '%s'],
             ['%d']
         );
 
@@ -205,9 +214,33 @@ final class SourcesRepository
             'id' => (int) ($row['id'] ?? 0),
             'name' => (string) ($row['name'] ?? ''),
             'feed_url' => (string) ($row['feed_url'] ?? ''),
+            'news_limit' => (int) ($row['news_limit'] ?? 10),
             'is_active' => (bool) ((int) ($row['is_active'] ?? 0)),
             'created_at' => (string) ($row['created_at'] ?? ''),
             'updated_at' => (string) ($row['updated_at'] ?? ''),
         ];
+    }
+
+    private function ensure_schema(): void
+    {
+        if (self::$schema_checked) {
+            return;
+        }
+
+        global $wpdb;
+
+        $table_name = $this->get_table_name();
+        $column = $wpdb->get_var(
+            $wpdb->prepare(
+                "SHOW COLUMNS FROM {$table_name} LIKE %s",
+                'news_limit'
+            )
+        );
+
+        if ($column === null) {
+            $wpdb->query("ALTER TABLE {$table_name} ADD COLUMN news_limit INT NOT NULL DEFAULT 10 AFTER feed_url");
+        }
+
+        self::$schema_checked = true;
     }
 }

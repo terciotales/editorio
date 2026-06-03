@@ -108,6 +108,7 @@ final class SourcesService
     {
         $name = sanitize_text_field((string) ($payload['name'] ?? ''));
         $feed_url = esc_url_raw((string) ($payload['feed_url'] ?? ''));
+        $news_limit = isset($payload['news_limit']) ? (int) $payload['news_limit'] : 10;
         $is_active = isset($payload['is_active']) ? (bool) $payload['is_active'] : true;
 
         if ($name === '') {
@@ -118,9 +119,18 @@ final class SourcesService
             return new WP_Error('editorio_sources_invalid_url', __('A valid feed URL is required.', 'editorio'), ['status' => 400]);
         }
 
+        if ($news_limit < 1) {
+            $news_limit = 10;
+        }
+
+        if ($news_limit > 100) {
+            $news_limit = 100;
+        }
+
         return [
             'name' => $name,
             'feed_url' => $feed_url,
+            'news_limit' => $news_limit,
             'is_active' => $is_active ? 1 : 0,
         ];
     }

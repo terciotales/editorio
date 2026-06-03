@@ -130,6 +130,7 @@ final class SourcesController
         return [
             'name' => $request->get_param('name'),
             'feed_url' => $request->get_param('feed_url'),
+            'news_limit' => $request->get_param('news_limit'),
             'is_active' => $request->get_param('is_active'),
         ];
     }
@@ -146,6 +147,10 @@ final class SourcesController
                 'required' => false,
                 'type' => 'string',
                 'sanitize_callback' => 'esc_url_raw',
+            ],
+            'news_limit' => [
+                'required' => false,
+                'type' => 'integer',
             ],
             'is_active' => [
                 'required' => false,

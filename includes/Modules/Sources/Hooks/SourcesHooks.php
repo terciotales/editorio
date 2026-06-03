@@ -6,6 +6,7 @@ namespace Editorio\Modules\Sources\Hooks;
 
 final class SourcesHooks
 {
+    private const PARENT_MENU_SLUG = 'editorio';
     private const MENU_SLUG = 'editorio-sources';
 
     public function register(): void
@@ -22,20 +23,32 @@ final class SourcesHooks
 
     public function register_admin_menu(): void
     {
+        // Create parent menu
         add_menu_page(
+            __('Editorio', 'editorio'),
+            __('Editorio', 'editorio'),
+            'edit_posts',
+            self::PARENT_MENU_SLUG,
+            [$this, 'render_parent_page'],
+            'dashicons-edit',
+            58
+        );
+
+        // Add Sources as submenu
+        add_submenu_page(
+            self::PARENT_MENU_SLUG,
             __('Fontes', 'editorio'),
             __('Fontes', 'editorio'),
             'edit_posts',
             self::MENU_SLUG,
-            [$this, 'render_sources_page'],
-            'dashicons-rss',
-            58
+            [$this, 'render_sources_page']
         );
     }
 
     public function enqueue_admin_assets(string $hook_suffix): void
     {
-        if ($hook_suffix !== 'toplevel_page_' . self::MENU_SLUG) {
+        if ($hook_suffix !== 'toplevel_page_' . self::PARENT_MENU_SLUG && 
+            $hook_suffix !== 'editorio_page_' . self::MENU_SLUG) {
             return;
         }
 
@@ -45,7 +58,7 @@ final class SourcesHooks
                 'nonce' => wp_create_nonce('wp_rest'),
                 'messages' => [
                     'pageTitle' => __('Fontes', 'editorio'),
-                    'pageSubtitle' => __('Gerencie feeds, status e conteúdo de origem em um painel mais organizado.', 'editorio'),
+                    'pageSubtitle' => __('Gerencie feeds e conteúdo de origem em um painel mais organizado.', 'editorio'),
                     'overview' => __('Use o formulário abaixo para cadastrar, editar e ativar fontes de conteúdo.', 'editorio'),
                     'addSource' => __('Adicionar fonte', 'editorio'),
                     'totalLabel' => __('Total de fontes', 'editorio'),
@@ -75,7 +88,6 @@ final class SourcesHooks
                     'edit' => __('Editar', 'editorio'),
                     'delete' => __('Excluir', 'editorio'),
                     'refresh' => __('Atualizar', 'editorio'),
-                    'docs' => __('Ver exemplo', 'editorio'),
                     'loadError' => __('Não foi possível carregar as fontes.', 'editorio'),
                     'saveError' => __('Não foi possível salvar a fonte.', 'editorio'),
                     'deleteError' => __('Não foi possível excluir a fonte.', 'editorio'),
@@ -114,5 +126,11 @@ final class SourcesHooks
         echo '</style>';
         echo '<div id="editorio-sources-app"></div>';
         echo '</div>';
+    }
+
+    public function render_parent_page(): void
+    {
+        // Parent menu page - redirect to sources
+        wp_safe_remote_get(admin_url('admin.php?page=editorio-sources'));
     }
 }

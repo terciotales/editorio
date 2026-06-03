@@ -50,11 +50,14 @@ final class Plugin
     public static function activate(): void
     {
         SourcesModule::activate();
+        CollectorModule::activate();
+        PublisherModule::activate();
         flush_rewrite_rules();
     }
 
     public static function deactivate(): void
     {
+        CollectorModule::deactivate();
         flush_rewrite_rules();
     }
 

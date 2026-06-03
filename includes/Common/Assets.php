@@ -35,6 +35,11 @@ final class Assets
             'asset' => 'bundle/modules/ai-settings/index.asset.php',
             'style' => 'bundle/modules/ai-settings/index.css',
         ],
+        'editorio-publisher' => [
+            'script' => 'bundle/modules/publisher/index.js',
+            'asset' => 'bundle/modules/publisher/index.asset.php',
+            'style' => 'bundle/modules/publisher/index.css',
+        ],
     ];
 
     public function register_hooks(): void

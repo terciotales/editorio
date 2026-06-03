@@ -17,6 +17,7 @@ module.exports = {
       'modules/draft/index': path.resolve(process.cwd(), 'src/js/modules/draft/index.js'),
       'modules/review/index': path.resolve(process.cwd(), 'src/js/modules/review/index.js'),
       'modules/ai-settings/index': path.resolve(process.cwd(), 'src/js/modules/ai-settings/index.js'),
+      'modules/publisher/index': path.resolve(process.cwd(), 'src/js/modules/publisher/index.js'),
     };
   },
   output: {
@@ -28,3 +29,4 @@ module.exports = {
     concatenateModules: false,
   },
 };
+

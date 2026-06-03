@@ -2,7 +2,7 @@ import apiFetch from '@wordpress/api-fetch';
 import domReady from '@wordpress/dom-ready';
 import {Page} from '@wordpress/admin-ui';
 import {createRoot, useEffect, useMemo, useRef, useState} from '@wordpress/element';
-import {Button, Card, Link, Notice, Stack} from '@wordpress/ui';
+import {Button, Card, Notice, Stack} from '@wordpress/ui';
 import {Spinner, ToggleControl} from '@wordpress/components';
 import '../../../css/modules/sources/index.scss';
 
@@ -24,8 +24,6 @@ if ( config.nonce ) {
 }
 
 const endpoint = ( path = '' ) => `${ config.restNamespace }/sources${ path }`;
-const collectorEndpoint = ( path = '' ) =>
-	`${ config.restNamespace }/collector${ path }`;
 
 function message( key, fallback ) {
 	return config.messages && config.messages[ key ]
@@ -37,6 +35,7 @@ function initialForm() {
 	return {
 		name: '',
 		feed_url: '',
+		news_limit: 10,
 		is_active: true,
 	};
 }
@@ -52,32 +51,13 @@ function SourcesApp() {
 	const [ isFormOpen, setIsFormOpen ] = useState( false );
 	const [ form, setForm ] = useState( initialForm() );
 	const [ toast, setToast ] = useState( null );
-	const [ collectorStatus, setCollectorStatus ] = useState( null );
-	const [ collectorLoading, setCollectorLoading ] = useState( true );
-	const [ collectorSyncing, setCollectorSyncing ] = useState( false );
-	const [ collectorError, setCollectorError ] = useState( '' );
 	const toastTimeout = useRef( null );
-	const collectorPollTimeout = useRef( null );
 
 	const totalCount = items.length;
 	const activeCount = useMemo(
 		() => items.filter( ( item ) => item.is_active ).length,
 		[ items ]
 	);
-	const collectorQueue = collectorStatus?.queue || {};
-	const collectorPending = Number( collectorQueue.pending || 0 );
-	const collectorProcessing = Number( collectorQueue.processing || 0 );
-	const collectorDone = Number( collectorQueue.done || 0 );
-	const collectorFailed = Number( collectorQueue.failed || 0 );
-	const collectorTotal =
-		collectorPending +
-		collectorProcessing +
-		collectorDone +
-		collectorFailed;
-	const collectorProgress = collectorTotal > 0
-		? Math.min( 100, Math.round( ( collectorDone / collectorTotal ) * 100 ) )
-		: 0;
-	const collectorBusy = collectorSyncing || collectorPending > 0 || collectorProcessing > 0;
 	const isEditing = editingId !== null;
 	let submitLabel = message( 'create', 'Criar' );
 	if ( submitting ) {
@@ -104,9 +84,6 @@ function SourcesApp() {
 		return () => {
 			if ( toastTimeout.current ) {
 				clearTimeout( toastTimeout.current );
-			}
-			if ( collectorPollTimeout.current ) {
-				clearTimeout( collectorPollTimeout.current );
 			}
 		};
 	}, [] );
@@ -143,52 +120,9 @@ function SourcesApp() {
 		}
 	};
 
-	const loadCollectorStatus = async () => {
-		setCollectorError( '' );
-
-		try {
-			const response = await apiFetch( { path: collectorEndpoint( '/status' ) } );
-			setCollectorStatus( response );
-		} catch ( err ) {
-			setCollectorError(
-				err?.message ||
-					message(
-						'collectorStatusError',
-						'Não foi possível carregar o status da coleta.'
-					)
-			);
-		} finally {
-			setCollectorLoading( false );
-		}
-	};
-
 	useEffect( () => {
 		void load();
 	}, [] );
-
-	useEffect( () => {
-		void loadCollectorStatus();
-	}, [] );
-
-	useEffect( () => {
-		if ( collectorPollTimeout.current ) {
-			clearTimeout( collectorPollTimeout.current );
-		}
-
-		if ( ! collectorBusy ) {
-			return undefined;
-		}
-
-		collectorPollTimeout.current = setTimeout( () => {
-			void loadCollectorStatus();
-		}, 4000 );
-
-		return () => {
-			if ( collectorPollTimeout.current ) {
-				clearTimeout( collectorPollTimeout.current );
-			}
-		};
-	}, [ collectorBusy, collectorDone, collectorFailed, collectorPending, collectorProcessing ] );
 
 	const openCreateModal = () => {
 		setPendingDelete( null );
@@ -203,6 +137,9 @@ function SourcesApp() {
 		setForm( {
 			name: item.name || '',
 			feed_url: item.feed_url || '',
+			news_limit: Number.isFinite( Number( item.news_limit ) )
+				? Number( item.news_limit )
+				: 10,
 			is_active: !! item.is_active,
 		} );
 		setIsFormOpen( true );
@@ -292,6 +229,10 @@ function SourcesApp() {
 				data: {
 					name: item.name || '',
 					feed_url: item.feed_url || '',
+					news_limit:
+						Number.isFinite( Number( item.news_limit ) )
+							? Number( item.news_limit )
+							: 10,
 					is_active: nextValue,
 				},
 			} );
@@ -321,52 +262,6 @@ function SourcesApp() {
 						'Não foi possível alterar o status da fonte.'
 					)
 			);
-		}
-	};
-
-	const syncSources = async () => {
-		setCollectorSyncing( true );
-		setCollectorError( '' );
-
-		try {
-			const response = await apiFetch( {
-				path: collectorEndpoint( '/sync' ),
-				method: 'POST',
-				data: {
-					batch_size: 5,
-				},
-			} );
-
-			setCollectorStatus( ( current ) => ( {
-				...( current || {} ),
-				...response,
-			} ) );
-			showToast(
-				'success',
-				message(
-					'collectorRunning',
-					'Coleta em andamento.'
-				)
-			);
-			await Promise.all( [ load(), loadCollectorStatus() ] );
-		} catch ( err ) {
-			setCollectorError(
-				err?.message ||
-					message(
-						'collectorSyncError',
-						'Não foi possível iniciar a coleta.'
-					)
-			);
-			showToast(
-				'error',
-				err?.message ||
-					message(
-						'collectorSyncError',
-						'Não foi possível iniciar a coleta.'
-					)
-			);
-		} finally {
-			setCollectorSyncing( false );
 		}
 	};
 
@@ -423,7 +318,7 @@ function SourcesApp() {
 			title={ message( 'pageTitle', 'Fontes' ) }
 			subTitle={ message(
 				'pageSubtitle',
-				'Gerencie feeds, status e conteúdo de origem em um painel mais organizado.'
+				'Gerencie feeds e conteúdo de origem em um painel mais organizado.'
 			) }
 			actions={
 				<div className="editorio-sources-page__page-actions">
@@ -433,23 +328,6 @@ function SourcesApp() {
 					<Stack align="center" gap="xl" direction="row">
 						<Button
 							variant="secondary"
-							disabled={ collectorSyncing || collectorBusy }
-							onClick={ () => {
-								void syncSources();
-							} }
-						>
-							{ collectorSyncing
-								? message(
- 										'collectorSyncing',
- 										'Coletando...'
- 								  )
-								: message(
- 										'collectorAction',
- 										'Coletar agora'
- 								  ) }
-						</Button>
-						<Button
-							variant="secondary"
 							disabled={ loading || submitting }
 							onClick={ () => {
 								void load();
@@ -457,9 +335,6 @@ function SourcesApp() {
 						>
 							{ message( 'refresh', 'Atualizar' ) }
 						</Button>
-						<Link href="https://wordpress.org/news/" openInNewTab>
-							{ message( 'docs', 'Ver exemplo' ) }
-						</Link>
 					</Stack>
 				</div>
 			}
@@ -501,121 +376,7 @@ function SourcesApp() {
 									</span>
 								</div>
 							</div>
-						</Stack>
-					</Card.Content>
-				</Card.Root>
 
-				<Card.Root>
-					<Card.Content>
-						<Stack direction="column" gap="sm">
-							<div className="editorio-sources-page__collector-header">
-								<div>
-									<h2>
-										{ message(
-											'collectorTitle',
-											'Coleta de feeds'
-										) }
-									</h2>
-									<p>
-										{ message(
-											'collectorHint',
-											'A coleta roda em lotes e continua em segundo plano até terminar.'
-										) }
-									</p>
-								</div>
-								<Button
-									variant="secondary"
-									disabled={ collectorSyncing || collectorLoading }
-									onClick={ () => {
-										void loadCollectorStatus();
-									} }
-								>
-									{ message(
-										'collectorRefresh',
-										'Atualizar status'
-									) }
-								</Button>
-							</div>
-
-							{ collectorError ? (
-								<Notice.Root intent="error">
-									<Notice.Description>
-										{ collectorError }
-									</Notice.Description>
-								</Notice.Root>
-							) : null }
-
-							{ collectorLoading ? (
-								<div className="editorio-sources-page__loading">
-									<Spinner />
-								</div>
-							) : (
-								<div className="editorio-sources-page__collector-panel">
-									<div className="editorio-sources-page__collector-progress">
-										<div className="editorio-sources-page__collector-progress-bar">
-											<span
-												style={ {
-													width: `${ collectorProgress }%`,
-												} }
-											/>
-										</div>
-										<strong>
-											{ collectorProgress }%
-										</strong>
-									</div>
-
-									<div className="editorio-sources-page__collector-stats">
-										<div>
-											<strong>{ collectorPending }</strong>
-											<span>
-												{ message(
-													'collectorQueued',
-													'Fontes aguardando coleta.'
-												) }
-											</span>
-										</div>
-										<div>
-											<strong>{ collectorProcessing }</strong>
-											<span>
-												{ message(
-													'collectorRunning',
-													'Coleta em andamento.'
-												) }
-											</span>
-										</div>
-										<div>
-											<strong>{ collectorDone }</strong>
-											<span>
-												{ message(
-													'collectorDone',
-													'Fontes processadas.'
-												) }
-											</span>
-										</div>
-										<div>
-											<strong>{ collectorFailed }</strong>
-											<span>
-												{ message(
-													'collectorFailed',
-													'Fontes com erro.'
-												) }
-											</span>
-										</div>
-									</div>
-
-									<p className="editorio-sources-page__collector-status">
-										{ collectorBusy
-											? message(
-													'collectorRunning',
-													'Coleta em andamento.'
-											  )
-											: message(
-													'collectorIdle',
-													'Nenhuma coleta em andamento.'
-											  ) }
-									</p>
-								</div>
-							) }
 						</Stack>
 					</Card.Content>
 				</Card.Root>
@@ -676,17 +437,23 @@ function SourcesApp() {
 														'Nome'
 													) }
 												</th>
-												<th>
-													{ message(
-														'feedColumn',
-														'Feed URL'
-													) }
-												</th>
-												<th>
-													{ message(
-														'statusColumn',
-														'Status'
-													) }
+										<th>
+											{ message(
+												'feedColumn',
+												'Feed URL'
+											) }
+										</th>
+										<th>
+											{ message(
+												'limitColumn',
+												'Limite'
+											) }
+										</th>
+										<th>
+											{ message(
+												'statusColumn',
+												'Status'
+											) }
 												</th>
 												<th>
 													{ message(
@@ -703,7 +470,10 @@ function SourcesApp() {
 													<td className="editorio-sources-page__feed-cell">
 														{ item.feed_url }
 													</td>
-													<td className="editorio-sources-page__toggle-cell">
+													<td className="editorio-sources-page__limit-cell">
+														{ item.news_limit || 10 }
+													</td>
+											<td className="editorio-sources-page__toggle-cell">
 														<ToggleControl
 															label={ message(
 																'statusToggleLabel',
@@ -882,10 +652,10 @@ function SourcesApp() {
 												/>
 											</label>
 
-											<label
-												className="editorio-sources-page__field"
-												htmlFor="editorio-source-feed-url"
-											>
+												<label
+													className="editorio-sources-page__field"
+													htmlFor="editorio-source-feed-url"
+												>
 												<span>
 													{ message(
 														'feedLabel',
@@ -902,6 +672,35 @@ function SourcesApp() {
 															feed_url:
 																event.target
 																	.value,
+														} )
+													}
+													required
+													disabled={ submitting }
+												/>
+												</label>
+
+											<label
+												className="editorio-sources-page__field"
+												htmlFor="editorio-source-news-limit"
+											>
+												<span>
+													{ message(
+														'limitLabel',
+														'Limite de notícias'
+													) }
+												</span>
+												<input
+													id="editorio-source-news-limit"
+													type="number"
+													min="1"
+													max="100"
+													value={ form.news_limit }
+													onChange={ ( event ) =>
+														setForm( {
+															...form,
+															news_limit: Number(
+																event.target.value
+															) || 10,
 														} )
 													}
 													required

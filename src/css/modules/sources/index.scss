@@ -2,7 +2,6 @@
 	display: grid;
 	box-sizing: border-box;
 	margin: 0 auto;
-	max-width: 1080px;
 	padding: 24px;
 	width: 100%;
 }
@@ -68,12 +67,6 @@
 	width: 100%;
 }
 
-.editorio-sources-page__loading {
-	display: flex;
-	justify-content: center;
-	padding: 24px 0;
-}
-
 .editorio-sources-page__table {
 	width: 100%;
 	border: none !important;
@@ -95,6 +88,12 @@
 	word-break: break-word;
 }
 
+.editorio-sources-page__limit-cell {
+	width: 96px;
+	text-align: center;
+	font-weight: 700;
+}
+
 .editorio-sources-page__toggle-cell {
 	vertical-align: middle !important;
 	width: 160px;
@@ -104,100 +103,6 @@
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
-}
-
-.editorio-sources-page__status {
-	display: inline-flex;
-	align-items: center;
-	padding: 4px 10px;
-	border-radius: 999px;
-	background: #f0f0f1;
-	color: #1d2327;
-	font-size: 12px;
-	font-weight: 600;
-}
-
-.editorio-sources-page__status--active {
-	background: #edfaef;
-	color: #0a6b1d;
-}
-
-.editorio-sources-page__collector-header {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	justify-content: space-between;
-	gap: 16px;
-}
-
-.editorio-sources-page__collector-header h2 {
-	margin: 0;
-}
-
-.editorio-sources-page__collector-header p {
-	margin: 4px 0 0;
-	color: #646970;
-}
-
-.editorio-sources-page__collector-panel {
-	display: grid;
-	gap: 16px;
-}
-
-.editorio-sources-page__collector-progress {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-}
-
-.editorio-sources-page__collector-progress strong {
-	min-width: 48px;
-	font-size: 1rem;
-}
-
-.editorio-sources-page__collector-progress-bar {
-	position: relative;
-	flex: 1;
-	height: 10px;
-	overflow: hidden;
-	border-radius: 999px;
-	background: #f0f0f1;
-}
-
-.editorio-sources-page__collector-progress-bar span {
-	display: block;
-	height: 100%;
-	border-radius: inherit;
-	background: #2271b1;
-	transition: width 0.25s ease;
-}
-
-.editorio-sources-page__collector-stats {
-	display: grid;
-	grid-template-columns: repeat(4, minmax(0, 1fr));
-	gap: 12px;
-}
-
-.editorio-sources-page__collector-stats div {
-	padding: 14px;
-	border: 1px solid #dcdcde;
-	border-radius: 12px;
-	background: #fff;
-}
-
-.editorio-sources-page__collector-stats strong {
-	display: block;
-	font-size: 1.25rem;
-	line-height: 1.2;
-}
-
-.editorio-sources-page__collector-stats span {
-	color: #646970;
-}
-
-.editorio-sources-page__collector-status {
-	margin: 0;
-	color: #646970;
 }
 
 .editorio-sources-page__toast {
@@ -288,9 +193,5 @@
 
 	.editorio-sources-page__stats {
 		grid-template-columns: 1fr;
-	}
-
-	.editorio-sources-page__collector-stats {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
 }

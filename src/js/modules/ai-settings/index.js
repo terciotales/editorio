@@ -11,7 +11,8 @@ const config = window.editorioAiConfig || {
 	nonce: '',
 	settings: {
 		enabled: false,
-		system_instruction: '',
+		rewrite_prompt: '',
+		curation_prompt: '',
 	},
 	dependency: {
 		available: false,
@@ -79,19 +80,29 @@ function getDependencyState( dependency ) {
 function AISettingsApp() {
 	const [ settings, setSettings ] = useState( {
 		enabled: !! config.settings?.enabled,
-		system_instruction: String( config.settings?.system_instruction || '' ),
+		rewrite_prompt: String( config.settings?.rewrite_prompt || '' ),
+		curation_prompt: String( config.settings?.curation_prompt || '' ),
 	} );
-	const [ draftInstruction, setDraftInstruction ] = useState(
-		String( config.settings?.system_instruction || '' )
+	const [ rewriteDraft, setRewriteDraft ] = useState(
+		String( config.settings?.rewrite_prompt || '' )
+	);
+	const [ curationDraft, setCurationDraft ] = useState(
+		String( config.settings?.curation_prompt || '' )
 	);
 	const [ isSavingToggle, setIsSavingToggle ] = useState( false );
-	const [ isSavingInstruction, setIsSavingInstruction ] = useState( false );
+	const [ isSavingRewrite, setIsSavingRewrite ] = useState( false );
+	const [ isSavingCuration, setIsSavingCuration ] = useState( false );
 	const [ snackbar, setSnackbar ] = useState( null );
 	const snackbarTimeout = useRef( null );
 
-	const isInstructionDirty = useMemo(
-		() => draftInstruction !== String( settings.system_instruction || '' ),
-		[ draftInstruction, settings.system_instruction ]
+	const isRewriteDirty = useMemo(
+		() => rewriteDraft !== String( settings.rewrite_prompt || '' ),
+		[ rewriteDraft, settings.rewrite_prompt ]
+	);
+
+	const isCurationDirty = useMemo(
+		() => curationDraft !== String( settings.curation_prompt || '' ),
+		[ curationDraft, settings.curation_prompt ]
 	);
 
 	const dependencyState = useMemo(
@@ -122,8 +133,10 @@ function AISettingsApp() {
 	const persist = async ( nextSettings, kind, successText ) => {
 		if ( kind === 'toggle' ) {
 			setIsSavingToggle( true );
+		} else if ( kind === 'rewrite' ) {
+			setIsSavingRewrite( true );
 		} else {
-			setIsSavingInstruction( true );
+			setIsSavingCuration( true );
 		}
 
 		try {
@@ -132,19 +145,20 @@ function AISettingsApp() {
 				method: 'POST',
 				data: {
 					enabled: !! nextSettings.enabled,
-					system_instruction: String(
-						nextSettings.system_instruction || ''
-					),
+					rewrite_prompt: String( nextSettings.rewrite_prompt || '' ),
+					curation_prompt: String( nextSettings.curation_prompt || '' ),
 				},
 			} );
 
 			const normalized = {
 				enabled: !! response.enabled,
-				system_instruction: String( response.system_instruction || '' ),
+				rewrite_prompt: String( response.rewrite_prompt || '' ),
+				curation_prompt: String( response.curation_prompt || '' ),
 			};
 
 			setSettings( normalized );
-			setDraftInstruction( normalized.system_instruction );
+			setRewriteDraft( normalized.rewrite_prompt );
+			setCurationDraft( normalized.curation_prompt );
 			showSnackbar( 'success', successText );
 		} catch ( error ) {
 			showSnackbar(
@@ -155,8 +169,10 @@ function AISettingsApp() {
 		} finally {
 			if ( kind === 'toggle' ) {
 				setIsSavingToggle( false );
+			} else if ( kind === 'rewrite' ) {
+				setIsSavingRewrite( false );
 			} else {
-				setIsSavingInstruction( false );
+				setIsSavingCuration( false );
 			}
 		}
 	};
@@ -220,12 +236,15 @@ function AISettingsApp() {
 								) }
 								checked={ !! settings.enabled }
 								disabled={
-									isSavingToggle || isSavingInstruction
+									isSavingToggle ||
+									isSavingRewrite ||
+									isSavingCuration
 								}
 								onChange={ ( value ) => {
 									const next = {
 										enabled: !! value,
-										system_instruction: draftInstruction,
+										rewrite_prompt: rewriteDraft,
+										curation_prompt: curationDraft,
 									};
 									setSettings( next );
 									void persist(
@@ -258,20 +277,18 @@ function AISettingsApp() {
 						<Stack direction="column" gap="sm">
 							<TextareaControl
 								label={ message(
-									'instructionLabel',
-									'Instrução do sistema'
+									'rewritePromptLabel',
+									'Prompt de reescrita'
 								) }
 								help={ message(
-									'instructionHelp',
-									'Prompt base para reescrita. Provedor e credenciais vêm do WordPress AI.'
+									'rewritePromptHelp',
+									'Usado para reescrever notícias. Provedor e credenciais vêm do WordPress AI.'
 								) }
-								value={ draftInstruction }
+								value={ rewriteDraft }
 								rows={ 7 }
-								disabled={ isSavingInstruction }
+								disabled={ isSavingRewrite }
 								onChange={ ( value ) => {
-									setDraftInstruction(
-										String( value || '' )
-									);
+									setRewriteDraft( String( value || '' ) );
 								} }
 							/>
 
@@ -279,30 +296,83 @@ function AISettingsApp() {
 								<Button
 									variant="primary"
 									disabled={
-										! isInstructionDirty ||
-										isSavingInstruction
+										! isRewriteDirty || isSavingRewrite
 									}
 									onClick={ () => {
 										void persist(
 											{
 												enabled: settings.enabled,
-												system_instruction:
-													draftInstruction,
+												rewrite_prompt: rewriteDraft,
+												curation_prompt:
+													curationDraft,
 											},
-											'instruction',
+											'rewrite',
 											message(
-												'instructionSaved',
-												'System instruction saved.'
+												'rewritePromptSaved',
+												'Prompt de reescrita salvo.'
 											)
 										);
 									} }
 								>
 									{ message(
-										'saveInstruction',
-										'Salvar instrução'
+										'saveRewritePrompt',
+										'Salvar prompt de reescrita'
 									) }
 								</Button>
-								{ isSavingInstruction ? <Spinner /> : null }
+								{ isSavingRewrite ? <Spinner /> : null }
+							</div>
+						</Stack>
+					</Card.Content>
+				</Card.Root>
+
+				<Card.Root>
+					<Card.Content>
+						<Stack direction="column" gap="sm">
+							<TextareaControl
+								label={ message(
+									'curationPromptLabel',
+									'Prompt de curadoria'
+								) }
+								help={ message(
+									'curationPromptHelp',
+									'Usado apenas como nota editorial da síntese. A estrutura da curadoria permanece fixa e sempre gera novas pautas com fontes citadas.'
+								) }
+								value={ curationDraft }
+								rows={ 7 }
+								disabled={ isSavingCuration }
+								onChange={ ( value ) => {
+									setCurationDraft( String( value || '' ) );
+								} }
+							/>
+
+							<div className="editorio-ai-settings-page__actions">
+								<Button
+									variant="primary"
+									disabled={
+										! isCurationDirty || isSavingCuration
+									}
+									onClick={ () => {
+										void persist(
+											{
+												enabled: settings.enabled,
+												rewrite_prompt: rewriteDraft,
+												curation_prompt:
+													curationDraft,
+											},
+											'curation',
+											message(
+												'curationPromptSaved',
+												'Prompt de curadoria salvo.'
+											)
+										);
+									} }
+								>
+									{ message(
+										'saveCurationPrompt',
+										'Salvar prompt de curadoria'
+									) }
+								</Button>
+								{ isSavingCuration ? <Spinner /> : null }
 							</div>
 						</Stack>
 					</Card.Content>

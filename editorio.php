@@ -9,6 +9,7 @@
  * Author: Tércio Tales
  * License: GPL-2.0-or-later
  * Text Domain: editorio
+ * Domain Path: /languages
  */
 
 if (! defined('ABSPATH')) {

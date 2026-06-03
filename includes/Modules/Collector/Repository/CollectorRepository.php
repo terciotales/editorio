@@ -27,8 +27,11 @@ final class CollectorRepository
         $sql = "CREATE TABLE {$table_name} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             source_id BIGINT UNSIGNED NOT NULL,
+            source_type VARCHAR(20) NOT NULL DEFAULT 'xml',
+            external_id VARCHAR(191) NOT NULL DEFAULT '',
             title VARCHAR(191) NOT NULL,
-            description LONGTEXT,
+            summary LONGTEXT,
+            content_html LONGTEXT,
             content_url VARCHAR(2083) NOT NULL,
             image_url VARCHAR(2083),
             author VARCHAR(191),
@@ -36,10 +39,12 @@ final class CollectorRepository
             collected_at DATETIME NOT NULL,
             status VARCHAR(50) NOT NULL DEFAULT 'collected',
             hash VARCHAR(64) NOT NULL,
+            raw_payload LONGTEXT,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             KEY source_id (source_id),
+            KEY source_external_id (source_id, external_id),
             KEY status (status),
             KEY hash (hash),
             KEY collected_at (collected_at)
@@ -96,13 +101,19 @@ final class CollectorRepository
         }
 
         if (array_key_exists('search', $filters) && $filters['search'] !== null) {
-            $where[] = '(title LIKE %s OR description LIKE %s)';
+            $where[] = '(title LIKE %s OR summary LIKE %s OR content_html LIKE %s)';
             $search = '%' . $wpdb->esc_like((string) $filters['search']) . '%';
+            $params[] = $search;
             $params[] = $search;
             $params[] = $search;
         }
 
-        $sql = "SELECT id, source_id, title, description, content_url, image_url, author, published_at, collected_at, status, hash, created_at, updated_at FROM {$table_name}";
+        if (array_key_exists('collected_after', $filters) && $filters['collected_after'] !== null) {
+            $where[] = 'collected_at >= %s';
+            $params[] = (string) $filters['collected_after'];
+        }
+
+        $sql = "SELECT id, source_id, source_type, external_id, title, summary, content_html, content_url, image_url, author, published_at, collected_at, status, hash, raw_payload, created_at, updated_at FROM {$table_name}";
         if (!empty($where)) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
@@ -132,7 +143,7 @@ final class CollectorRepository
 
         $table_name = $this->get_table_name();
         $prepared = $wpdb->prepare(
-            "SELECT id, source_id, title, description, content_url, image_url, author, published_at, collected_at, status, hash, created_at, updated_at FROM {$table_name} WHERE id = %d LIMIT 1",
+            "SELECT id, source_id, source_type, external_id, title, summary, content_html, content_url, image_url, author, published_at, collected_at, status, hash, raw_payload, created_at, updated_at FROM {$table_name} WHERE id = %d LIMIT 1",
             $id
         );
 
@@ -154,7 +165,7 @@ final class CollectorRepository
 
         $table_name = $this->get_table_name();
         $prepared = $wpdb->prepare(
-            "SELECT id, source_id, title, description, content_url, image_url, author, published_at, collected_at, status, hash, created_at, updated_at FROM {$table_name} WHERE source_id = %d AND hash = %s LIMIT 1",
+            "SELECT id, source_id, source_type, external_id, title, summary, content_html, content_url, image_url, author, published_at, collected_at, status, hash, raw_payload, created_at, updated_at FROM {$table_name} WHERE source_id = %d AND hash = %s LIMIT 1",
             $source_id,
             $hash
         );
@@ -173,35 +184,88 @@ final class CollectorRepository
 
     public function create(array $data): ?array
     {
+        return $this->upsert($data);
+    }
+
+    public function upsert(array $data): ?array
+    {
         global $wpdb;
 
         $table_name = $this->get_table_name();
         $now = current_time('mysql');
+        $source_id = (int) $data['source_id'];
+        $external_id = trim((string) ($data['external_id'] ?? ''));
+        $hash = (string) $data['hash'];
 
-        $inserted = $wpdb->insert(
+        $existing = null;
+        if ($external_id !== '') {
+            $existing = $this->get_by_source_and_external_id($source_id, $external_id);
+        }
+
+        if ($existing === null) {
+            $existing = $this->get_by_hash($source_id, $hash);
+        }
+
+        $payload = [
+            'source_id' => $source_id,
+            'source_type' => (string) ($data['source_type'] ?? 'xml'),
+            'external_id' => $external_id !== '' ? $external_id : $hash,
+            'title' => (string) $data['title'],
+            'summary' => (string) ($data['summary'] ?? ''),
+            'content_html' => (string) ($data['content_html'] ?? ''),
+            'content_url' => (string) $data['content_url'],
+            'image_url' => (string) ($data['image_url'] ?? ''),
+            'author' => (string) ($data['author'] ?? ''),
+            'published_at' => (string) ($data['published_at'] ?? ''),
+            'collected_at' => (string) ($data['collected_at'] ?? $now),
+            'status' => (string) ($data['status'] ?? 'collected'),
+            'hash' => $hash,
+            'raw_payload' => (string) ($data['raw_payload'] ?? ''),
+            'updated_at' => $now,
+        ];
+
+        if ($existing === null) {
+            $inserted = $wpdb->insert(
+                $table_name,
+                $payload + ['created_at' => $now],
+                ['%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s']
+            );
+
+            if ($inserted === false) {
+                return null;
+            }
+
+            return $this->get_by_id((int) $wpdb->insert_id);
+        }
+
+        $updated = $wpdb->update(
             $table_name,
             [
-                'source_id' => (int) $data['source_id'],
-                'title' => (string) $data['title'],
-                'description' => (string) ($data['description'] ?? ''),
-                'content_url' => (string) $data['content_url'],
-                'image_url' => (string) ($data['image_url'] ?? ''),
-                'author' => (string) ($data['author'] ?? ''),
-                'published_at' => (string) ($data['published_at'] ?? ''),
-                'collected_at' => $now,
-                'status' => (string) ($data['status'] ?? 'collected'),
-                'hash' => (string) $data['hash'],
-                'created_at' => $now,
-                'updated_at' => $now,
+                'source_type' => $payload['source_type'],
+                'external_id' => $payload['external_id'],
+                'title' => $payload['title'],
+                'summary' => $payload['summary'],
+                'content_html' => $payload['content_html'],
+                'content_url' => $payload['content_url'],
+                'image_url' => $payload['image_url'],
+                'author' => $payload['author'],
+                'published_at' => $payload['published_at'],
+                'collected_at' => $payload['collected_at'],
+                'status' => $payload['status'],
+                'hash' => $payload['hash'],
+                'raw_payload' => $payload['raw_payload'],
+                'updated_at' => $payload['updated_at'],
             ],
-            ['%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s']
+            ['id' => (int) $existing['id']],
+            ['%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s'],
+            ['%d']
         );
 
-        if ($inserted === false) {
+        if ($updated === false) {
             return null;
         }
 
-        return $this->get_by_id((int) $wpdb->insert_id);
+        return $this->get_by_id((int) $existing['id']);
     }
 
     public function update(int $id, array $data): ?array
@@ -210,9 +274,7 @@ final class CollectorRepository
 
         $table_name = $this->get_table_name();
 
-        $update_data = [
-            'updated_at' => current_time('mysql'),
-        ];
+        $update_data = ['updated_at' => current_time('mysql')];
         $update_format = ['%s'];
 
         if (array_key_exists('status', $data)) {
@@ -226,7 +288,7 @@ final class CollectorRepository
         }
 
         if (array_key_exists('description', $data)) {
-            $update_data['description'] = (string) $data['description'];
+            $update_data['summary'] = (string) $data['description'];
             $update_format[] = '%s';
         }
 
@@ -245,6 +307,29 @@ final class CollectorRepository
         return $this->get_by_id($id);
     }
 
+    public function get_by_source_and_external_id(int $source_id, string $external_id): ?array
+    {
+        global $wpdb;
+
+        $table_name = $this->get_table_name();
+        $prepared = $wpdb->prepare(
+            "SELECT id, source_id, source_type, external_id, title, summary, content_html, content_url, image_url, author, published_at, collected_at, status, hash, raw_payload, created_at, updated_at FROM {$table_name} WHERE source_id = %d AND external_id = %s LIMIT 1",
+            $source_id,
+            $external_id
+        );
+
+        if (! is_string($prepared)) {
+            return null;
+        }
+
+        $row = $wpdb->get_row($prepared, ARRAY_A);
+        if (! is_array($row)) {
+            return null;
+        }
+
+        return $this->map_row($row);
+    }
+
     public function delete(int $id): bool
     {
         global $wpdb;
@@ -260,8 +345,11 @@ final class CollectorRepository
         return [
             'id' => (int) ($row['id'] ?? 0),
             'source_id' => (int) ($row['source_id'] ?? 0),
+            'source_type' => (string) ($row['source_type'] ?? 'xml'),
+            'external_id' => (string) ($row['external_id'] ?? ''),
             'title' => (string) ($row['title'] ?? ''),
-            'description' => (string) ($row['description'] ?? ''),
+            'summary' => (string) ($row['summary'] ?? ''),
+            'content_html' => (string) ($row['content_html'] ?? ''),
             'content_url' => (string) ($row['content_url'] ?? ''),
             'image_url' => (string) ($row['image_url'] ?? ''),
             'author' => (string) ($row['author'] ?? ''),
@@ -269,9 +357,9 @@ final class CollectorRepository
             'collected_at' => (string) ($row['collected_at'] ?? ''),
             'status' => (string) ($row['status'] ?? 'collected'),
             'hash' => (string) ($row['hash'] ?? ''),
+            'raw_payload' => (string) ($row['raw_payload'] ?? ''),
             'created_at' => (string) ($row['created_at'] ?? ''),
             'updated_at' => (string) ($row['updated_at'] ?? ''),
         ];
     }
 }
-

@@ -52,6 +52,16 @@ final class CollectorController
 
         register_rest_route(
             'editorio/v1',
+            '/collector/sync',
+            [
+                'methods' => 'POST',
+                'callback' => [$this, 'sync'],
+                'permission_callback' => static fn (): bool => current_user_can('edit_posts'),
+            ]
+        );
+
+        register_rest_route(
+            'editorio/v1',
             '/collector/items/(?P<id>\d+)',
             [
                 'methods' => 'GET',
@@ -172,5 +182,36 @@ final class CollectorController
 
         return new WP_REST_Response(['success' => true]);
     }
-}
 
+    public function sync(WP_REST_Request $request): WP_REST_Response
+    {
+        $source_id = (int) $request->get_param('source_id');
+        $batch_size = (int) $request->get_param('batch_size');
+        if ($batch_size <= 0) {
+            $batch_size = 5;
+        }
+
+        if ($source_id > 0) {
+            $result = $this->service->collect_source($source_id);
+        } else {
+            $queued = $this->service->queue_all_sources();
+            if ($queued instanceof WP_Error) {
+                return new WP_REST_Response(
+                    ['error' => $queued->get_error_message()],
+                    (int) ($queued->get_error_data()['status'] ?? 400)
+                );
+            }
+
+            $result = $this->service->process_pending_batch($batch_size);
+        }
+
+        if ($result instanceof WP_Error) {
+            return new WP_REST_Response(
+                ['error' => $result->get_error_message()],
+                (int) ($result->get_error_data()['status'] ?? 400)
+            );
+        }
+
+        return new WP_REST_Response($result);
+    }
+}

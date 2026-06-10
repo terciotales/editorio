@@ -127,6 +127,333 @@ final class AIService
     }
 
     /**
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    public function generate_review_draft(array $payload): array
+    {
+        $content = trim((string) ($payload['content'] ?? ''));
+        $item = is_array($payload['item'] ?? null) ? $payload['item'] : [];
+        $current_draft = is_array($payload['current_draft'] ?? null) ? $payload['current_draft'] : [];
+        $categories = is_array($payload['categories'] ?? null) ? $payload['categories'] : [];
+        $sources = is_array($item['sources'] ?? null) ? $item['sources'] : [];
+        $field = sanitize_key((string) ($payload['field'] ?? 'all'));
+        $allowed_fields = ['all', 'title', 'summary', 'categories', 'tags', 'content'];
+        if (! in_array($field, $allowed_fields, true)) {
+            $field = 'all';
+        }
+
+        $backend_source_content = $this->build_review_source_context($sources);
+        if ($backend_source_content !== '') {
+            $content = trim($content . "\n\n=== SOURCE PAGES FETCHED BY SERVER ===\n" . $backend_source_content);
+        }
+
+        if ($content === '') {
+            $content = trim(
+                (string) ($item['title'] ?? '') . "\n\n" .
+                (string) ($item['summary'] ?? '') . "\n\n" .
+                wp_json_encode($sources, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            );
+        }
+
+        if ($content === '') {
+            return [
+                'success' => false,
+                'error' => __('Content is required.', 'editorio'),
+            ];
+        }
+
+        $settings = $this->settings_repository->get_settings();
+        if (empty($settings['enabled'])) {
+            return [
+                'success' => false,
+                'error' => __('AI is disabled in settings.', 'editorio'),
+            ];
+        }
+
+        $dependency = $this->get_dependency_status();
+        if (! $dependency['available']) {
+            return [
+                'success' => false,
+                'error' => __('WordPress AI plugin is not active. Activate it to use Editorio AI.', 'editorio'),
+            ];
+        }
+        if (! $dependency['has_credentials']) {
+            return [
+                'success' => false,
+                'error' => __('No AI connector configured. Configure a provider in the WordPress AI connectors screen.', 'editorio'),
+            ];
+        }
+        if (! $dependency['has_valid_credentials']) {
+            return [
+                'success' => false,
+                'error' => __('AI connector credentials are invalid or unavailable for text generation.', 'editorio'),
+            ];
+        }
+
+        $prompt = wp_json_encode([
+            'task' => 'Generate a review-ready rewritten news article draft from source material.',
+            'current_date' => current_time('mysql'),
+            'regenerate_field' => $field,
+            'story' => [
+                'title' => (string) ($item['title'] ?? ''),
+                'summary' => (string) ($item['summary'] ?? ''),
+                'sources' => $sources,
+            ],
+            'available_categories' => $this->normalize_review_categories($categories),
+            'current_draft' => $current_draft,
+            'source_content' => function_exists('mb_substr') ? mb_substr($content, 0, 24000) : substr($content, 0, 24000),
+            'output_format' => [
+                'title' => 'Original rewritten headline',
+                'summary' => 'Short deck/summary',
+                'categories_suggested' => ['Existing category name'],
+                'tags_suggested' => ['tag one', 'tag two'],
+                'content' => '<p>Rewritten article body in HTML.</p>',
+            ],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        if (! is_string($prompt) || $prompt === '') {
+            return [
+                'success' => false,
+                'error' => __('Could not build AI prompt.', 'editorio'),
+            ];
+        }
+
+        $system_instruction = $this->build_review_draft_instruction((string) ($settings['rewrite_prompt'] ?? ''));
+
+        try {
+            $response = get_ai_service()->create_textgen_prompt($prompt, [
+                'system_instruction' => $system_instruction,
+            ])->generate_text();
+        } catch (\Throwable $exception) {
+            return [
+                'success' => false,
+                'error' => $exception->getMessage(),
+            ];
+        }
+
+        if (! is_string($response) || $response === '') {
+            return [
+                'success' => false,
+                'error' => __('AI provider returned an empty response.', 'editorio'),
+            ];
+        }
+
+        $decoded = $this->decode_json_response($response);
+        if ($decoded === []) {
+            $parsed = $this->parse_response($response);
+            $decoded = is_array($parsed['data'] ?? null) ? $parsed['data'] : [];
+        }
+
+        $draft = $this->normalize_review_draft($decoded, $item, $current_draft);
+        if ($field !== 'all') {
+            $draft = array_merge($this->normalize_review_draft($current_draft, $item, []), [
+                $this->map_review_field_to_key($field) => $draft[$this->map_review_field_to_key($field)] ?? '',
+            ]);
+        }
+
+        return [
+            'success' => true,
+            'draft' => $draft,
+            'raw' => $response,
+        ];
+    }
+
+    private function build_review_draft_instruction(string $editorial_note = ''): string
+    {
+        $instruction = <<<TXT
+You are a Portuguese-language newsroom editor.
+
+Rewrite source material into an original news article.
+Keep factual accuracy. Do not copy source phrasing.
+Use neutral journalistic tone.
+Use the source_content as the primary factual context.
+Do not invent facts, schedules, broadcast channels, rankings, lineups, quotes, venues, dates, times, scores, or consequences.
+Only mention match time, broadcast information, probable lineups, table position, venue, or competition details when those exact facts appear in source_content or story.sources.
+If a detail is not present in the provided sources, omit it instead of writing generic filler such as "com opções indicadas", "deve ser definido", or "pode ter impacto".
+Prefer concrete facts extracted from the sources over generic background.
+Return only valid JSON. No markdown. No commentary.
+
+Required JSON keys:
+- title: concise headline.
+- summary: short article summary.
+- categories_suggested: category names chosen only from available_categories.
+- tags_suggested: short lowercase tags.
+- content: complete rewritten article body in clean HTML paragraphs.
+
+When regenerate_field is not "all", regenerate only that field and keep other current_draft fields stable.
+TXT;
+
+        $editorial_note = trim($editorial_note);
+        if ($editorial_note !== '') {
+            $instruction .= "\n\nEditorial rewrite instructions:\n" . $editorial_note;
+        }
+
+        return $instruction;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $sources
+     */
+    private function build_review_source_context(array $sources): string
+    {
+        $chunks = [];
+
+        foreach (array_slice($sources, 0, 4) as $index => $source) {
+            if (! is_array($source)) {
+                continue;
+            }
+
+            $title = trim((string) ($source['title'] ?? ''));
+            $source_name = trim((string) ($source['source_name'] ?? ''));
+            $summary = trim((string) ($source['summary'] ?? ''));
+            $url = trim((string) ($source['content_url'] ?? ''));
+            $fetched_text = $this->fetch_review_source_text($url);
+
+            $parts = array_filter([
+                'Source #' . ((int) $index + 1),
+                $source_name !== '' ? 'Publisher: ' . $source_name : '',
+                $title !== '' ? 'Title: ' . $title : '',
+                $summary !== '' ? 'Summary: ' . $summary : '',
+                $url !== '' ? 'URL: ' . $url : '',
+                $fetched_text !== '' ? "Fetched page text:\n" . $fetched_text : '',
+            ]);
+
+            if ($parts !== []) {
+                $chunks[] = implode("\n", $parts);
+            }
+        }
+
+        $context = implode("\n\n---\n\n", $chunks);
+
+        return function_exists('mb_substr') ? mb_substr($context, 0, 24000) : substr($context, 0, 24000);
+    }
+
+    private function fetch_review_source_text(string $url): string
+    {
+        if ($url === '' || ! wp_http_validate_url($url)) {
+            return '';
+        }
+
+        $response = wp_remote_get($url, [
+            'timeout' => 8,
+            'redirection' => 3,
+            'headers' => [
+                'User-Agent' => 'Mozilla/5.0 (compatible; EditorioBot/1.0; +https://wordpress.org/)',
+                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            ],
+        ]);
+
+        if (is_wp_error($response)) {
+            return '';
+        }
+
+        $status = (int) wp_remote_retrieve_response_code($response);
+        if ($status < 200 || $status >= 300) {
+            return '';
+        }
+
+        return $this->extract_review_text_from_html((string) wp_remote_retrieve_body($response));
+    }
+
+    private function extract_review_text_from_html(string $html): string
+    {
+        if (trim($html) === '') {
+            return '';
+        }
+
+        $html = preg_replace('/<(script|style|noscript|svg|iframe)\b[^>]*>.*?<\/\1>/is', ' ', $html) ?? $html;
+        $text = wp_strip_all_tags($html, true);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = preg_replace('/[ \t]+/', ' ', $text) ?? $text;
+        $text = preg_replace('/\R{3,}/', "\n\n", $text) ?? $text;
+        $text = trim($text);
+
+        return function_exists('mb_substr') ? mb_substr($text, 0, 8000) : substr($text, 0, 8000);
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $categories
+     * @return array<int,array{id:int,name:string}>
+     */
+    private function normalize_review_categories(array $categories): array
+    {
+        $normalized = [];
+
+        foreach ($categories as $category) {
+            if (! is_array($category)) {
+                continue;
+            }
+
+            $name = trim((string) ($category['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+
+            $normalized[] = [
+                'id' => (int) ($category['id'] ?? 0),
+                'name' => $name,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<string,mixed> $draft
+     * @param array<string,mixed> $item
+     * @param array<string,mixed> $fallback
+     * @return array{title:string,summary:string,categories_suggested:array<int,string>,tags_suggested:array<int,string>,content:string}
+     */
+    private function normalize_review_draft(array $draft, array $item, array $fallback): array
+    {
+        $title = trim((string) ($draft['title'] ?? $fallback['title'] ?? $item['generated_title'] ?? $item['title'] ?? ''));
+        $summary = trim((string) ($draft['summary'] ?? $fallback['summary'] ?? $item['summary'] ?? $item['curation_reason'] ?? ''));
+        $content = trim((string) ($draft['content'] ?? $fallback['content'] ?? $item['generated_content'] ?? ''));
+
+        return [
+            'title' => $title !== '' ? $title : __('Untitled', 'editorio'),
+            'summary' => $summary,
+            'categories_suggested' => $this->normalize_string_list($draft['categories_suggested'] ?? $fallback['categories_suggested'] ?? []),
+            'tags_suggested' => $this->normalize_string_list($draft['tags_suggested'] ?? $fallback['tags_suggested'] ?? []),
+            'content' => wp_kses_post($content),
+        ];
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function normalize_string_list(mixed $value): array
+    {
+        if (is_string($value)) {
+            $value = preg_split('/[,;\n]+/', $value) ?: [];
+        }
+
+        if (! is_array($value)) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($value as $item) {
+            $text = trim((string) $item);
+            if ($text !== '') {
+                $items[] = $text;
+            }
+        }
+
+        return array_values(array_unique($items));
+    }
+
+    private function map_review_field_to_key(string $field): string
+    {
+        return match ($field) {
+            'categories' => 'categories_suggested',
+            'tags' => 'tags_suggested',
+            default => $field,
+        };
+    }
+
+    /**
      * @param array<int,array<string,mixed>> $items
      * @return array<int,array<string,mixed>>
      */
@@ -190,7 +517,11 @@ final class AIService
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         if (! is_string($prompt) || $prompt === '') {
-            return $fallback;
+            return $this->build_curation_fallback(
+                $items,
+                $limit,
+                __('Could not build the AI curation prompt.', 'editorio')
+            );
         }
 
         $system_instruction = $this->build_curation_instruction((string) ($settings['curation_prompt'] ?? ''));
@@ -199,8 +530,6 @@ final class AIService
             $response = get_ai_service()->create_textgen_prompt($prompt, [
                 'system_instruction' => $system_instruction,
             ])->generate_text();
-
-            \Nucleoweb_Log::d($response);
         } catch (\Throwable $exception) {
             return $this->build_curation_fallback($items, $limit, $exception->getMessage());
         }
@@ -410,6 +739,7 @@ final class AIService
             'workflow_item_id' => (int) ($item['id'] ?? 0),
             'collector_item_id' => (int) ($item['collector_item_id'] ?? 0),
             'title' => (string) ($item['title'] ?? ''),
+            'summary' => (string) ($item['summary'] ?? ''),
             'source_name' => (string) ($item['source_name'] ?? ''),
             'content_url' => (string) ($item['content_url'] ?? ''),
             'published_at' => (string) ($item['published_at'] ?? ''),

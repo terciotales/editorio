@@ -40,6 +40,15 @@ final class AIController
                 'permission_callback' => static fn (): bool => current_user_can('edit_posts'),
             ]
         );
+        register_rest_route(
+            'editorio/v1',
+            '/ai/review-draft',
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [$this, 'review_draft'],
+                'permission_callback' => static fn (): bool => current_user_can('edit_posts'),
+            ]
+        );
     }
     public function get_settings(WP_REST_Request $request): WP_REST_Response
     {
@@ -52,6 +61,12 @@ final class AIController
     public function rewrite(WP_REST_Request $request): WP_REST_Response
     {
         $result = $this->service->rewrite((string) $request->get_param('content'));
+        return new WP_REST_Response($result);
+    }
+    public function review_draft(WP_REST_Request $request): WP_REST_Response
+    {
+        $params = $request->get_json_params();
+        $result = $this->service->generate_review_draft(is_array($params) ? $params : []);
         return new WP_REST_Response($result);
     }
     /**

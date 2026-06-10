@@ -61,10 +61,30 @@ final class PublisherController
 
         register_rest_route(
             'editorio/v1',
+            '/publisher/workflows',
+            [
+                'methods' => 'GET',
+                'callback' => [$this, 'list_workflows'],
+                'permission_callback' => fn() => current_user_can('edit_posts'),
+            ]
+        );
+
+        register_rest_route(
+            'editorio/v1',
             '/publisher/workflow/(?P<session_id>[^/]+)/status',
             [
                 'methods' => 'GET',
                 'callback' => [$this, 'get_workflow_status'],
+                'permission_callback' => fn() => current_user_can('edit_posts'),
+            ]
+        );
+
+        register_rest_route(
+            'editorio/v1',
+            '/publisher/workflow/(?P<session_id>[^/]+)/resume',
+            [
+                'methods' => 'GET',
+                'callback' => [$this, 'resume_workflow'],
                 'permission_callback' => fn() => current_user_can('edit_posts'),
             ]
         );
@@ -154,6 +174,13 @@ final class PublisherController
         return new WP_REST_Response($result);
     }
 
+    public function list_workflows(WP_REST_Request $request): WP_REST_Response
+    {
+        $limit = (int) ($request->get_param('limit') ?? 8);
+
+        return new WP_REST_Response($this->service->list_recent_workflows($limit));
+    }
+
     public function process_batch(): WP_REST_Response
     {
         $collector_repo = new \Editorio\Modules\Collector\Repository\CollectorRepository();
@@ -179,6 +206,21 @@ final class PublisherController
         $status = $this->service->get_workflow_status($session_id);
 
         return new WP_REST_Response($status);
+    }
+
+    public function resume_workflow(WP_REST_Request $request): WP_REST_Response
+    {
+        $session_id = $request->get_param('session_id');
+        $result = $this->service->resume_workflow($session_id);
+
+        if ($result instanceof \WP_Error) {
+            return new WP_REST_Response(
+                ['error' => $result->get_error_message()],
+                (int) ($result->get_error_data()['status'] ?? 404)
+            );
+        }
+
+        return new WP_REST_Response($result);
     }
 
     public function finalize_collection(WP_REST_Request $request): WP_REST_Response
@@ -222,26 +264,37 @@ final class PublisherController
         $approved = $params['approved'] ?? false;
         $generated_title = (string) ($params['generated_title'] ?? '');
         $generated_content = (string) ($params['generated_content'] ?? '');
+        $generated_summary = (string) ($params['generated_summary'] ?? '');
+        $generated_categories = is_array($params['generated_categories'] ?? null) ? $params['generated_categories'] : [];
+        $generated_tags = is_array($params['generated_tags'] ?? null) ? $params['generated_tags'] : [];
 
-        $this->service->approve_item(
+        $result = $this->service->approve_item(
             $session_id,
             (int) $item_id,
             (bool) $approved,
             $generated_title,
-            $generated_content
+            $generated_content,
+            $generated_summary,
+            $generated_categories,
+            $generated_tags
         );
 
-        return new WP_REST_Response([
-            'success' => true,
-            'item_id' => $item_id,
-            'approved' => $approved,
-        ]);
+        if ($result instanceof \WP_Error) {
+            return new WP_REST_Response(
+                ['error' => $result->get_error_message()],
+                (int) ($result->get_error_data()['status'] ?? 400)
+            );
+        }
+
+        return new WP_REST_Response($result);
     }
 
     public function save_drafts(WP_REST_Request $request): WP_REST_Response
     {
         $session_id = $request->get_param('session_id');
-        $result = $this->service->save_approved_drafts($session_id);
+        $params = $request->get_json_params();
+        $items = is_array($params['items'] ?? null) ? $params['items'] : [];
+        $result = $this->service->save_approved_drafts($session_id, $items);
 
         return new WP_REST_Response($result);
     }

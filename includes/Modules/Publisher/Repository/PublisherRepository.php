@@ -11,6 +11,7 @@ final class PublisherRepository
     private wpdb $wpdb;
     private string $table_sessions;
     private string $table_items;
+    private static bool $items_schema_checked = false;
 
     public function __construct()
     {
@@ -51,6 +52,9 @@ final class PublisherRepository
             approval_status VARCHAR(20) DEFAULT NULL,
             generated_content LONGTEXT,
             generated_title VARCHAR(255),
+            generated_summary LONGTEXT,
+            generated_categories LONGTEXT,
+            generated_tags LONGTEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             KEY session_id (session_id),
@@ -99,6 +103,33 @@ final class PublisherRepository
         return $result;
     }
 
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    public function list_recent_sessions(int $limit = 8): array
+    {
+        $limit = max(1, min(20, $limit));
+
+        $sessions = $this->wpdb->get_results(
+            $this->wpdb->prepare(
+                "SELECT *
+                FROM {$this->table_sessions}
+                ORDER BY updated_at DESC
+                LIMIT %d",
+                $limit
+            ),
+            ARRAY_A
+        ) ?: [];
+
+        return array_map(
+            static function (array $session): array {
+                $session['data'] = json_decode($session['data'] ?? '{}', true);
+                return $session;
+            },
+            $sessions
+        );
+    }
+
     public function update_session(string $session_id, array $data): bool
     {
         return (bool) $this->wpdb->update(
@@ -141,6 +172,7 @@ final class PublisherRepository
      */
     public function get_session_items(string $session_id, bool $curated_only = false): array
     {
+        $this->ensure_items_schema();
         $condition = $curated_only ? 'AND wi.is_curated = TRUE' : '';
 
         $items = $this->wpdb->get_results(
@@ -154,6 +186,9 @@ final class PublisherRepository
                     wi.approval_status,
                     wi.curation_reason,
                     wi.generated_title,
+                    wi.generated_summary,
+                    wi.generated_categories,
+                    wi.generated_tags,
                     wi.generated_content,
                     wi.curation_sources,
                     ci.source_id,
@@ -336,26 +371,40 @@ final class PublisherRepository
 
     public function get_selected_items(string $session_id): array
     {
-        return $this->wpdb->get_results(
-            $this->wpdb->prepare(
-                "SELECT * FROM {$this->table_items} WHERE session_id = %s AND is_selected = TRUE ORDER BY id ASC",
-                $session_id
-            ),
-            ARRAY_A
-        );
+        return array_values(array_filter(
+            $this->get_session_items($session_id, true),
+            static fn (array $item): bool => (int) ($item['is_selected'] ?? 0) === 1
+        ));
     }
 
-    public function update_item_approval(string $session_id, int $item_id, string $status, string $generated_title = '', string $generated_content = ''): void
+    /**
+     * @param array<int,string> $generated_categories
+     * @param array<int,string> $generated_tags
+     */
+    public function update_item_approval(
+        string $session_id,
+        int $item_id,
+        string $status,
+        string $generated_title = '',
+        string $generated_content = '',
+        string $generated_summary = '',
+        array $generated_categories = [],
+        array $generated_tags = []
+    ): void
     {
+        $this->ensure_items_schema();
         $this->wpdb->update(
             $this->table_items,
             [
                 'approval_status' => $status,
                 'generated_title' => $generated_title,
                 'generated_content' => $generated_content,
+                'generated_summary' => $generated_summary,
+                'generated_categories' => wp_json_encode(array_values($generated_categories)),
+                'generated_tags' => wp_json_encode(array_values($generated_tags)),
             ],
             ['session_id' => $session_id, 'id' => $item_id],
-            ['%s', '%s', '%s'],
+            ['%s', '%s', '%s', '%s', '%s', '%s'],
             ['%s', '%d']
         );
 
@@ -386,17 +435,39 @@ final class PublisherRepository
 
     public function get_approval_summary(string $session_id): array
     {
-        return $this->wpdb->get_results(
-            $this->wpdb->prepare(
-                "SELECT * FROM {$this->table_items} WHERE session_id = %s AND is_selected = TRUE ORDER BY id ASC",
-                $session_id
-            ),
-            ARRAY_A
-        );
+        return $this->get_selected_items($session_id);
     }
 
     public function count(): int
     {
         return 0;
+    }
+
+    private function ensure_items_schema(): void
+    {
+        if (self::$items_schema_checked) {
+            return;
+        }
+
+        $columns = [
+            'generated_summary' => 'LONGTEXT',
+            'generated_categories' => 'LONGTEXT',
+            'generated_tags' => 'LONGTEXT',
+        ];
+
+        foreach ($columns as $column => $definition) {
+            $existing = $this->wpdb->get_var(
+                $this->wpdb->prepare(
+                    "SHOW COLUMNS FROM {$this->table_items} LIKE %s",
+                    $column
+                )
+            );
+
+            if ($existing === null) {
+                $this->wpdb->query("ALTER TABLE {$this->table_items} ADD COLUMN {$column} {$definition} NULL AFTER generated_content");
+            }
+        }
+
+        self::$items_schema_checked = true;
     }
 }

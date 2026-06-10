@@ -208,7 +208,7 @@ final class AIService
                 'summary' => 'Short deck/summary',
                 'categories_suggested' => ['Existing category name'],
                 'tags_suggested' => ['tag one', 'tag two'],
-                'content' => '<p>Rewritten article body in HTML.</p>',
+                'content' => '<!-- wp:paragraph --><p>Opening paragraph in WordPress block markup.</p><!-- /wp:paragraph -->',
             ],
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
@@ -279,7 +279,14 @@ Required JSON keys:
 - summary: short article summary.
 - categories_suggested: category names chosen only from available_categories.
 - tags_suggested: short lowercase tags.
-- content: complete rewritten article body in clean HTML paragraphs.
+- content: complete rewritten article body in WordPress block editor markup (Gutenberg comments), using modern blocks such as paragraph, heading, list, quote, and image when supported by the source material.
+
+For content, return valid block HTML ready for the WordPress block editor, for example:
+<!-- wp:paragraph --><p>...</p><!-- /wp:paragraph -->
+<!-- wp:heading {"level":2} --><h2>...</h2><!-- /wp:heading -->
+
+Do not return plain HTML without block comments.
+Prefer semantic Gutenberg blocks instead of generic div wrappers.
 
 When regenerate_field is not "all", regenerate only that field and keep other current_draft fields stable.
 TXT;

@@ -5,7 +5,6 @@ use Editorio\Modules\AI\Service\AIService;
 
 final class AIHooks
 {
-    private const PARENT_MENU_SLUG = 'editorio';
     private const MENU_SLUG = 'editorio-ai';
     private AIService $service;
 
@@ -16,20 +15,7 @@ final class AIHooks
 
     public function register(): void
     {
-        add_action('admin_menu', [$this, 'register_admin_menu']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
-    }
-
-    public function register_admin_menu(): void
-    {
-        add_submenu_page(
-            self::PARENT_MENU_SLUG,
-            __('IA', 'editorio'),
-            __('IA', 'editorio'),
-            'manage_options',
-            self::MENU_SLUG,
-            [$this, 'render_page']
-        );
     }
 
     public function enqueue_admin_assets(string $hook_suffix): void
@@ -87,21 +73,5 @@ final class AIHooks
         }
 
         wp_enqueue_style('wp-components');
-    }
-    public function render_page(): void
-    {
-        if (! current_user_can('manage_options')) {
-            return;
-        }
-        ?>
-        <div class="wrap editorio-ai-settings boot-layout-container">
-            <style>
-                .editorio-ai-settings{margin:0!important;max-width:none;padding:0;width:100%}
-                #wpcontent{padding-inline-start:0}
-                #wpbody-content{padding-bottom:0}
-            </style>
-            <div id="editorio-ai-settings-react"></div>
-        </div>
-        <?php
     }
 }

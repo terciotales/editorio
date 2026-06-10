@@ -131,6 +131,16 @@ final class PublisherController
 
         register_rest_route(
             'editorio/v1',
+            '/publisher/workflow/(?P<session_id>[^/]+)/finalize-review',
+            [
+                'methods' => 'POST',
+                'callback' => [$this, 'finalize_review'],
+                'permission_callback' => fn() => current_user_can('edit_posts'),
+            ]
+        );
+
+        register_rest_route(
+            'editorio/v1',
             '/publisher/workflow/(?P<session_id>[^/]+)/save-drafts',
             [
                 'methods' => 'POST',
@@ -267,6 +277,8 @@ final class PublisherController
         $generated_summary = (string) ($params['generated_summary'] ?? '');
         $generated_categories = is_array($params['generated_categories'] ?? null) ? $params['generated_categories'] : [];
         $generated_tags = is_array($params['generated_tags'] ?? null) ? $params['generated_tags'] : [];
+        $featured_image_id = (int) ($params['featured_image_id'] ?? 0);
+        $featured_image_url = (string) ($params['featured_image_url'] ?? '');
 
         $result = $this->service->approve_item(
             $session_id,
@@ -276,8 +288,25 @@ final class PublisherController
             $generated_content,
             $generated_summary,
             $generated_categories,
-            $generated_tags
+            $generated_tags,
+            $featured_image_id,
+            $featured_image_url
         );
+
+        if ($result instanceof \WP_Error) {
+            return new WP_REST_Response(
+                ['error' => $result->get_error_message()],
+                (int) ($result->get_error_data()['status'] ?? 400)
+            );
+        }
+
+        return new WP_REST_Response($result);
+    }
+
+    public function finalize_review(WP_REST_Request $request): WP_REST_Response
+    {
+        $session_id = $request->get_param('session_id');
+        $result = $this->service->finalize_review($session_id);
 
         if ($result instanceof \WP_Error) {
             return new WP_REST_Response(

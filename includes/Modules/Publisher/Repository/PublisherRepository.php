@@ -55,6 +55,8 @@ final class PublisherRepository
             generated_summary LONGTEXT,
             generated_categories LONGTEXT,
             generated_tags LONGTEXT,
+            featured_image_id BIGINT NULL,
+            featured_image_url LONGTEXT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             KEY session_id (session_id),
@@ -189,6 +191,8 @@ final class PublisherRepository
                     wi.generated_summary,
                     wi.generated_categories,
                     wi.generated_tags,
+                    wi.featured_image_id,
+                    wi.featured_image_url,
                     wi.generated_content,
                     wi.curation_sources,
                     ci.source_id,
@@ -377,6 +381,47 @@ final class PublisherRepository
         ));
     }
 
+    public function reject_pending_selected_items(string $session_id): int
+    {
+        $updated = $this->wpdb->query(
+            $this->wpdb->prepare(
+                "UPDATE {$this->table_items}
+                SET approval_status = %s
+                WHERE session_id = %s
+                  AND is_selected = 1
+                  AND (approval_status IS NULL OR approval_status = '')",
+                'rejected',
+                $session_id
+            )
+        );
+
+        $approved = $this->wpdb->get_var(
+            $this->wpdb->prepare(
+                "SELECT COUNT(*) FROM {$this->table_items} WHERE session_id = %s AND approval_status = %s",
+                $session_id,
+                'approved'
+            )
+        );
+
+        $rejected = $this->wpdb->get_var(
+            $this->wpdb->prepare(
+                "SELECT COUNT(*) FROM {$this->table_items} WHERE session_id = %s AND approval_status = %s",
+                $session_id,
+                'rejected'
+            )
+        );
+
+        $this->wpdb->update(
+            $this->table_sessions,
+            ['approved_count' => (int) $approved, 'rejected_count' => (int) $rejected],
+            ['id' => $session_id],
+            ['%d', '%d'],
+            ['%s']
+        );
+
+        return max(0, (int) $updated);
+    }
+
     /**
      * @param array<int,string> $generated_categories
      * @param array<int,string> $generated_tags
@@ -389,7 +434,9 @@ final class PublisherRepository
         string $generated_content = '',
         string $generated_summary = '',
         array $generated_categories = [],
-        array $generated_tags = []
+        array $generated_tags = [],
+        int $featured_image_id = 0,
+        string $featured_image_url = ''
     ): void
     {
         $this->ensure_items_schema();
@@ -402,9 +449,11 @@ final class PublisherRepository
                 'generated_summary' => $generated_summary,
                 'generated_categories' => wp_json_encode(array_values($generated_categories)),
                 'generated_tags' => wp_json_encode(array_values($generated_tags)),
+                'featured_image_id' => $featured_image_id > 0 ? $featured_image_id : null,
+                'featured_image_url' => $featured_image_url,
             ],
             ['session_id' => $session_id, 'id' => $item_id],
-            ['%s', '%s', '%s', '%s', '%s', '%s'],
+            ['%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s'],
             ['%s', '%d']
         );
 
@@ -453,6 +502,8 @@ final class PublisherRepository
             'generated_summary' => 'LONGTEXT',
             'generated_categories' => 'LONGTEXT',
             'generated_tags' => 'LONGTEXT',
+            'featured_image_id' => 'BIGINT NULL',
+            'featured_image_url' => 'LONGTEXT NULL',
         ];
 
         foreach ($columns as $column => $definition) {

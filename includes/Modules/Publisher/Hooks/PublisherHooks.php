@@ -14,7 +14,6 @@ final class PublisherHooks
     public function register(): void
     {
         add_action('editorio_install_tables', [$this, 'install_tables']);
-        add_action('admin_menu', [$this, 'register_admin_menu'], 11); // Run after Sources to ensure parent menu exists
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
     }
 
@@ -24,24 +23,14 @@ final class PublisherHooks
         $repository->install();
     }
 
-    public function register_admin_menu(): void
-    {
-        // Add Publisher as submenu of Editorio
-        add_submenu_page(
-            self::PARENT_MENU_SLUG,
-            __('Publicar', 'editorio'),
-            __('Publicar', 'editorio'),
-            'edit_posts',
-            self::MENU_SLUG,
-            [$this, 'render_publisher_page']
-        );
-    }
-
     public function enqueue_admin_assets(string $hook_suffix): void
     {
-        if ($hook_suffix !== 'editorio_page_' . self::MENU_SLUG) {
+        if ($hook_suffix !== 'toplevel_page_' . self::PARENT_MENU_SLUG
+            && $hook_suffix !== 'editorio_page_' . self::MENU_SLUG) {
             return;
         }
+
+        wp_enqueue_media();
 
         if (wp_script_is('editorio-publisher', 'registered')) {
             $config = [
@@ -66,21 +55,5 @@ final class PublisherHooks
                 wp_enqueue_style('editorio-publisher');
             }
         }
-    }
-
-    public function render_publisher_page(): void
-    {
-        if (! current_user_can('edit_posts')) {
-            return;
-        }
-
-        echo '<div class="wrap editorio-publisher-page-shell boot-layout-container">';
-        echo '<style>';
-        echo '.editorio-publisher-page-shell{margin:0!important;max-width:none;padding:0;width:100%}';
-        echo '#wpcontent{padding-inline-start:0}';
-        echo '#wpbody-content{padding-bottom:0}';
-        echo '</style>';
-        echo '<div id="editorio-publisher-root"></div>';
-        echo '</div>';
     }
 }

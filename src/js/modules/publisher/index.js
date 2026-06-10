@@ -1,7 +1,7 @@
 import domReady from '@wordpress/dom-ready';
 import {createRoot, useEffect, useState} from '@wordpress/element';
 import {Button, Card, Notice} from '@wordpress/ui';
-import {Spinner} from '@wordpress/components';
+import {FormTokenField, Modal, Spinner} from '@wordpress/components';
 import {Page} from '@wordpress/admin-ui';
 import apiFetch from '@wordpress/api-fetch';
 import '../../../css/modules/publisher/index.scss';
@@ -134,6 +134,8 @@ function createEmptyReviewDraft(item) {
     categories_suggested: normalizeList(parseJsonArray(item.generated_categories).length > 0 ? parseJsonArray(item.generated_categories) : item.generated_categories),
     tags_suggested: normalizeList(parseJsonArray(item.generated_tags).length > 0 ? parseJsonArray(item.generated_tags) : item.generated_tags),
     content: getCuratedStoryContent(item),
+    featured_image_id: Number(item.featured_image_id || 0),
+    featured_image_url: item.featured_image_url || '',
   };
 }
 
@@ -880,6 +882,7 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
   const [fieldLoading, setFieldLoading] = useState({});
   const [loading, setLoading] = useState(false);
   const [reviewError, setReviewError] = useState('');
+  const [isFinalizeModalOpen, setIsFinalizeModalOpen] = useState(false);
 
   useEffect(() => {
     const nextItems = Array.isArray(items) ? items : [];
@@ -936,6 +939,9 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
   const progress = item ? `Revisando notícia ${currentIndex + 1}/${reviewItems.length}` : '';
   const isGenerating = Object.values(fieldLoading).some(Boolean);
   const fieldOrder = ['title', 'summary', 'categories', 'tags', 'content'];
+  const categorySuggestions = categories
+    .map((category) => String(category.name || '').trim())
+    .filter(Boolean);
   const isFieldGenerating = (field) => Boolean(fieldLoading.all || fieldLoading[field]);
   const hasFieldGenerated = (field) => Boolean(generatedFields[itemId]?.[field]);
 
@@ -1122,6 +1128,58 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
     );
   };
 
+  const openFeaturedImageFrame = () => {
+    if (!itemId) {
+      return;
+    }
+
+    if (!window.wp?.media) {
+      setReviewError('A biblioteca de mídia do WordPress não está disponível.');
+      return;
+    }
+
+    const mediaFrame = window.wp.media({
+      title: 'Selecionar imagem destacada',
+      button: {
+        text: 'Usar esta imagem',
+      },
+      library: {
+        type: 'image',
+      },
+      multiple: false,
+    });
+
+    mediaFrame.on('select', () => {
+      const selection = mediaFrame.state().get('selection').first();
+      const attachment = selection ? selection.toJSON() : null;
+      if (!attachment) {
+        return;
+      }
+
+      const preferredUrl =
+        attachment.sizes?.large?.url ||
+        attachment.sizes?.medium_large?.url ||
+        attachment.sizes?.medium?.url ||
+        attachment.url ||
+        '';
+
+      updateDraft({
+        featured_image_id: Number(attachment.id || 0),
+        featured_image_url: preferredUrl,
+      });
+      setReviewError('');
+    });
+
+    mediaFrame.open();
+  };
+
+  const clearFeaturedImage = () => {
+    updateDraft({
+      featured_image_id: 0,
+      featured_image_url: '',
+    });
+  };
+
   const handleApprove = async (approved) => {
     if (!item || !draft) {
       return;
@@ -1140,6 +1198,8 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
           generated_summary: draft.summary,
           generated_categories: normalizeList(draft.categories_suggested),
           generated_tags: normalizeList(draft.tags_suggested),
+          featured_image_id: Number(draft.featured_image_id || 0),
+          featured_image_url: draft.featured_image_url || '',
         },
       });
 
@@ -1153,6 +1213,8 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
             generated_summary: draft.summary,
             generated_categories: JSON.stringify(normalizeList(draft.categories_suggested)),
             generated_tags: JSON.stringify(normalizeList(draft.tags_suggested)),
+            featured_image_id: Number(draft.featured_image_id || 0),
+            featured_image_url: draft.featured_image_url || '',
           }
           : reviewItem
       )));
@@ -1246,6 +1308,44 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
     rejected: 'dashicons dashicons-no-alt',
     pending: 'dashicons dashicons-clock',
   }[status] || 'dashicons dashicons-clock');
+  const pendingReviewItems = reviewItems.filter(isReviewPending);
+  const pendingReviewCount = pendingReviewItems.length;
+
+  const closeFinalizeModal = () => {
+    if (loading) {
+      return;
+    }
+
+    setIsFinalizeModalOpen(false);
+  };
+
+  const finalizeReview = async () => {
+    setLoading(true);
+    setReviewError('');
+
+    try {
+      const result = await apiFetch({
+        path: publisherEndpoint(`/workflow/${sessionId}/finalize-review`),
+        method: 'POST',
+      });
+
+      setIsFinalizeModalOpen(false);
+      onComplete(result);
+    } catch (error) {
+      setReviewError(error?.message || 'Não foi possível finalizar a revisão.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFinalizeReviewClick = () => {
+    if (pendingReviewCount > 0) {
+      setIsFinalizeModalOpen(true);
+      return;
+    }
+
+    void finalizeReview();
+  };
 
   if (reviewItems.length === 0) {
     return (
@@ -1299,8 +1399,7 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
           </div>
         </aside>
 
-        <Card.Root className="editorio-publisher__review-card">
-          <Card.Content>
+        <div className="editorio-publisher__review-main">
           <div className="editorio-publisher__review-header">
             <div>
               <span className="editorio-publisher__eyebrow">Etapa 3 de 4</span>
@@ -1322,17 +1421,21 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
           </div>
 
           {reviewError ? (
-            <Notice.Root intent="warning">
-              <Notice.Description>{reviewError}</Notice.Description>
-            </Notice.Root>
+            <div className="editorio-publisher__review-notice">
+              <Notice.Root intent="warning">
+                <Notice.Description>{reviewError}</Notice.Description>
+              </Notice.Root>
+            </div>
           ) : null}
 
           {hasSavedReviewDraft(item) ? (
-            <Notice.Root intent="info">
-              <Notice.Description>
-                Esta pauta já foi {item.approval_status === 'approved' ? 'aprovada' : 'rejeitada'}. Você pode revisar, editar e enviar uma nova decisão.
-              </Notice.Description>
-            </Notice.Root>
+            <div className="editorio-publisher__review-notice">
+              <Notice.Root intent="info">
+                <Notice.Description>
+                  Esta pauta já foi {item.approval_status === 'approved' ? 'aprovada' : 'rejeitada'}. Você pode revisar, editar e enviar uma nova decisão.
+                </Notice.Description>
+              </Notice.Root>
+            </div>
           ) : null}
 
           <article className="editorio-publisher__news-mockup">
@@ -1375,6 +1478,68 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
               )}
             </section>
 
+            <section className="editorio-publisher__mockup-section editorio-publisher__mockup-section--media">
+              <div className="editorio-publisher__mockup-section-header">
+                <span>Imagem destacada</span>
+                <div className="editorio-publisher__mockup-actions editorio-publisher__mockup-actions--static">
+                  <Button
+                    variant="secondary"
+                    size="small"
+                    className="editorio-publisher__mockup-icon-button"
+                    onClick={openFeaturedImageFrame}
+                    aria-label={draft.featured_image_url ? 'Trocar imagem destacada' : 'Selecionar imagem destacada'}
+                    title={draft.featured_image_url ? 'Trocar imagem destacada' : 'Selecionar imagem destacada'}
+                  >
+                    <span className="dashicons dashicons-format-image" aria-hidden="true" />
+                  </Button>
+                  {draft.featured_image_url ? (
+                    <Button
+                      variant="secondary"
+                      size="small"
+                      className="editorio-publisher__mockup-icon-button"
+                      onClick={clearFeaturedImage}
+                      aria-label="Remover imagem destacada"
+                      title="Remover imagem destacada"
+                    >
+                      <span className="dashicons dashicons-trash" aria-hidden="true" />
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+
+              {draft.featured_image_url ? (
+                <div className="editorio-publisher__featured-image">
+                  <img src={draft.featured_image_url} alt="" />
+                  <div className="editorio-publisher__featured-image-meta">
+                    <span>
+                      {draft.featured_image_id ? `Anexo #${draft.featured_image_id}` : 'Imagem selecionada'}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      className="editorio-publisher__featured-image-button"
+                      onClick={openFeaturedImageFrame}
+                    >
+                      Trocar imagem
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="editorio-publisher__empty-field-actions editorio-publisher__empty-field-actions--media">
+                  <Button
+                    variant="primary"
+                    className="editorio-publisher__empty-field-button editorio-publisher__empty-field-button--media"
+                    onClick={openFeaturedImageFrame}
+                  >
+                    <span className="dashicons dashicons-upload" aria-hidden="true" />
+                    Enviar ou selecionar imagem
+                  </Button>
+                  <p className="editorio-publisher__featured-image-help">
+                    A imagem escolhida será usada como capa do post criado ao final do fluxo.
+                  </p>
+                </div>
+              )}
+            </section>
+
             <section className={getFieldSectionClass('categories', 'editorio-publisher__mockup-section--meta')}>
               <div className="editorio-publisher__mockup-section-header">
                 <span>Categorias sugeridas</span>
@@ -1382,11 +1547,19 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
               </div>
               {renderFieldLoading('categories')}
               {isEditing('categories') ? (
-                <input
-                  className="editorio-publisher__mockup-input"
-                  value={normalizeList(draft.categories_suggested).join(', ')}
-                  onChange={(event) => updateDraft({ categories_suggested: event.target.value })}
-                />
+                <div className="editorio-publisher__token-field-wrap">
+                  <FormTokenField
+                    className="editorio-publisher__category-token-field"
+                    value={normalizeList(draft.categories_suggested)}
+                    suggestions={categorySuggestions}
+                    onChange={(tokens) => updateDraft({ categories_suggested: tokens })}
+                    placeholder="Digite para buscar categorias existentes"
+                    __experimentalExpandOnFocus
+                  />
+                  <p className="editorio-publisher__token-field-help">
+                    Comece a digitar para ver categorias existentes do WordPress.
+                  </p>
+                </div>
               ) : !hasFieldContent('categories') && !isFieldGenerating('categories') ? (
                 renderEmptyFieldActions('categories')
               ) : (
@@ -1421,7 +1594,7 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
               )}
             </section>
 
-            <section className={getFieldSectionClass('content')}>
+            <section className={getFieldSectionClass('content', 'editorio-publisher__mockup-section--content')}>
               <div className="editorio-publisher__mockup-section-header">
                 <span>Conteúdo</span>
                 {renderFieldActions('content')}
@@ -1493,6 +1666,16 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
                 Próxima
                 <span className="dashicons dashicons-arrow-right-alt2" aria-hidden="true" />
               </Button>
+              <Button
+                variant="secondary"
+                className="editorio-publisher__review-footer-button editorio-publisher__review-footer-button--finalize"
+                onClick={handleFinalizeReviewClick}
+                disabled={loading || isGenerating}
+                isBusy={loading && !fieldLoading.all}
+              >
+                <span className="dashicons dashicons-saved" aria-hidden="true" />
+                Finalizar revisão
+              </Button>
             </div>
             <div className="editorio-publisher__review-action-group editorio-publisher__review-action-group--decision">
               <Button
@@ -1516,8 +1699,45 @@ const ReviewScreen = ({ sessionId, items, onComplete, onBack }) => {
               </Button>
             </div>
           </div>
-          </Card.Content>
-        </Card.Root>
+
+          {isFinalizeModalOpen ? (
+            <Modal
+              title="Finalizar revisão"
+              onRequestClose={closeFinalizeModal}
+              className="editorio-publisher__review-modal"
+            >
+              <div className="editorio-publisher__review-modal-copy">
+                <p>
+                  {pendingReviewCount === 1
+                    ? 'Existe 1 notícia sem revisão.'
+                    : `Existem ${pendingReviewCount} notícias sem revisão.`}
+                </p>
+                <p>
+                  Se você continuar, elas serão marcadas como rejeitadas automaticamente e descartadas desta publicação.
+                </p>
+              </div>
+              <div className="editorio-publisher__review-modal-actions">
+                <Button
+                  variant="secondary"
+                  className="editorio-publisher__review-modal-button editorio-publisher__review-modal-button--secondary"
+                  onClick={closeFinalizeModal}
+                  disabled={loading}
+                >
+                  Continuar revisando
+                </Button>
+                <Button
+                  variant="primary"
+                  className="editorio-publisher__review-modal-button editorio-publisher__review-modal-button--primary"
+                  onClick={finalizeReview}
+                  isBusy={loading}
+                  disabled={loading}
+                >
+                  Finalizar e descartar pendentes
+                </Button>
+              </div>
+            </Modal>
+          ) : null}
+        </div>
       </div>
     </Page>
   );

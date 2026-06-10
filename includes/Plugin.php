@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Editorio;
 
+use Editorio\Common\AdminMenu;
 use Editorio\Common\Assets;
 use Editorio\Common\ModuleLoader;
 use Editorio\Modules\AI\AIModule;
@@ -22,6 +23,8 @@ final class Plugin
 
     private Assets $assets;
 
+    private AdminMenu $admin_menu;
+
     private function __construct()
     {
         $this->module_loader = new ModuleLoader([
@@ -35,6 +38,7 @@ final class Plugin
         ]);
 
         $this->assets = new Assets();
+        $this->admin_menu = new AdminMenu();
     }
 
     public static function boot(): void
@@ -64,6 +68,7 @@ final class Plugin
     private function register(): void
     {
         $this->assets->register_hooks();
+        $this->admin_menu->register_hooks();
         $this->module_loader->register_hooks();
         add_action('rest_api_init', [$this->module_loader, 'register_rest_routes']);
     }

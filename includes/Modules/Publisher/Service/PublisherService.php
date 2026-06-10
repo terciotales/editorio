@@ -413,7 +413,9 @@ final class PublisherService
         string $generated_content = '',
         string $generated_summary = '',
         array $generated_categories = [],
-        array $generated_tags = []
+        array $generated_tags = [],
+        int $featured_image_id = 0,
+        string $featured_image_url = ''
     ): array|WP_Error {
         $status = $approved ? 'approved' : 'rejected';
 
@@ -431,7 +433,9 @@ final class PublisherService
             $generated_content,
             $generated_summary,
             $generated_categories,
-            $generated_tags
+            $generated_tags,
+            $featured_image_id,
+            $featured_image_url
         );
 
         // Retornar próximo item a revisar
@@ -474,6 +478,43 @@ final class PublisherService
             'rejected_count' => (int) ($current_session['rejected_count'] ?? 0),
             'stage' => $summary !== null ? 'confirming' : 'reviewing',
             'summary' => $summary,
+        ];
+    }
+
+    public function finalize_review(string $session_id): array|WP_Error
+    {
+        $session = $this->repository->get_session($session_id);
+
+        if (! $session) {
+            return new WP_Error('session_not_found', 'Workflow session not found');
+        }
+
+        $selected_items = $this->repository->get_selected_items($session_id);
+        if ($selected_items === []) {
+            return new WP_Error('no_selected_items', 'No selected items to finalize');
+        }
+
+        $pending_items = array_filter(
+            $selected_items,
+            static fn (array $item): bool => ! in_array((string) ($item['approval_status'] ?? ''), ['approved', 'rejected'], true)
+        );
+
+        $auto_rejected_count = 0;
+        if ($pending_items !== []) {
+            $auto_rejected_count = $this->repository->reject_pending_selected_items($session_id);
+        }
+
+        $this->repository->update_stage($session_id, 'confirming');
+        $approval_summary = $this->get_approval_summary($session_id);
+        if ($approval_summary instanceof WP_Error) {
+            return $approval_summary;
+        }
+
+        return [
+            'session_id' => $session_id,
+            'stage' => 'confirming',
+            'summary' => $this->format_approval_summary($approval_summary),
+            'auto_rejected_count' => $auto_rejected_count,
         ];
     }
 
@@ -595,6 +636,11 @@ final class PublisherService
                     'error' => $post_id->get_error_message(),
                 ];
             } else {
+                $featured_image_id = (int) ($item['featured_image_id'] ?? 0);
+                if ($featured_image_id > 0 && get_post_type($featured_image_id) === 'attachment') {
+                    set_post_thumbnail((int) $post_id, $featured_image_id);
+                }
+
                 if ($action === 'publish') {
                     $action_counts['published']++;
                 } elseif ($action === 'schedule') {

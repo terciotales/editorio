@@ -6,13 +6,11 @@ namespace Editorio\Modules\Sources\Hooks;
 
 final class SourcesHooks
 {
-    private const PARENT_MENU_SLUG = 'editorio';
     private const MENU_SLUG = 'editorio-sources';
 
     public function register(): void
     {
         add_action('init', [$this, 'on_init']);
-        add_action('admin_menu', [$this, 'register_admin_menu']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
     }
 
@@ -21,34 +19,9 @@ final class SourcesHooks
         // Reserved for source-related WordPress hooks.
     }
 
-    public function register_admin_menu(): void
-    {
-        // Create parent menu
-        add_menu_page(
-            __('Editorio', 'editorio'),
-            __('Editorio', 'editorio'),
-            'edit_posts',
-            self::PARENT_MENU_SLUG,
-            [$this, 'render_parent_page'],
-            'dashicons-edit',
-            58
-        );
-
-        // Add Sources as submenu
-        add_submenu_page(
-            self::PARENT_MENU_SLUG,
-            __('Fontes', 'editorio'),
-            __('Fontes', 'editorio'),
-            'edit_posts',
-            self::MENU_SLUG,
-            [$this, 'render_sources_page']
-        );
-    }
-
     public function enqueue_admin_assets(string $hook_suffix): void
     {
-        if ($hook_suffix !== 'toplevel_page_' . self::PARENT_MENU_SLUG && 
-            $hook_suffix !== 'editorio_page_' . self::MENU_SLUG) {
+        if ($hook_suffix !== 'editorio_page_' . self::MENU_SLUG) {
             return;
         }
 
@@ -110,27 +83,5 @@ final class SourcesHooks
         if (wp_style_is('editorio-sources', 'registered')) {
             wp_enqueue_style('editorio-sources');
         }
-    }
-
-    public function render_sources_page(): void
-    {
-        if (! current_user_can('edit_posts')) {
-            return;
-        }
-
-        echo '<div class="wrap editorio-sources-page-shell boot-layout-container">';
-        echo '<style>';
-        echo '.editorio-sources-page-shell{margin:0!important;max-width:none;padding:0;width:100%}';
-        echo '#wpcontent{padding-inline-start:0}';
-        echo '#wpbody-content{padding-bottom:0}';
-        echo '</style>';
-        echo '<div id="editorio-sources-app"></div>';
-        echo '</div>';
-    }
-
-    public function render_parent_page(): void
-    {
-        // Parent menu page - redirect to sources
-        wp_safe_remote_get(admin_url('admin.php?page=editorio-sources'));
     }
 }

@@ -1,10 +1,13 @@
+.wrap.editorio-ai-settings.boot-layout-container {
+	box-sizing: border-box;
+}
+
 .editorio-ai-settings-page {
 	display: grid;
 	box-sizing: border-box;
 	margin: 0 auto;
 	max-width: 680px;
 	padding: 24px;
-	width: 100%;
 }
 
 .editorio-ai-settings-page__visual {

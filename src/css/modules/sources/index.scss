@@ -1,9 +1,12 @@
+.wrap.editorio-sources-page-shell.boot-layout-container {
+	box-sizing: border-box;
+}
+
 .editorio-sources-page {
 	display: grid;
 	box-sizing: border-box;
 	margin: 0 auto;
 	padding: 24px;
-	width: 100%;
 }
 
 .editorio-sources-page__page-actions {

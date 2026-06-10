@@ -24,8 +24,11 @@ rsync -a \
   --exclude ".git/" \
   --exclude ".idea/" \
   --exclude "node_modules/" \
+  --exclude "venv/" \
   --exclude "src/" \
   --exclude "dist/" \
+  --exclude "graphify-out/" \
+  --exclude "obsidian-vault/" \
   --exclude "package.json" \
   --exclude "package-lock.json" \
   --exclude "webpack.config.js" \
@@ -43,4 +46,3 @@ cd "$DIST_DIR"
 zip -qr "$(basename "$ZIP_FILE")" "$(basename "$RELEASE_DIR")"
 
 echo "Release generated: $ZIP_FILE"
-

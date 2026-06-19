@@ -3,7 +3,7 @@ import {createRoot, useEffect, useState} from '@wordpress/element';
 import {Spinner} from '@wordpress/components';
 import apiFetch from '@wordpress/api-fetch';
 import '../../../css/modules/publisher/index.scss';
-import {message, setupPublisherApiFetch} from './config';
+import {config, message, setupPublisherApiFetch} from './config';
 import {publisherEndpoint, sourcesEndpoint} from './api/endpoints';
 import {getSessionFromUrl, normalizeWorkflowStage, writeSessionToUrl} from './utils/workflow';
 import CollectionScreen from './screens/CollectionScreen';
@@ -12,10 +12,11 @@ import ReviewScreen from './screens/ReviewScreen';
 import ConfirmationScreen from './screens/ConfirmationScreen';
 import CompletionScreen from './screens/CompletionScreen';
 import LaunchScreen from './screens/LaunchScreen';
+import UrlRewriteScreen from './screens/UrlRewriteScreen';
 
 setupPublisherApiFetch();
 
-const Publisher = () => {
+const PublisherWorkflow = () => {
   const [sessionId, setSessionId] = useState(null);
   const [stage, setStage] = useState('idle');
   const [data, setData] = useState(null);
@@ -298,6 +299,12 @@ const Publisher = () => {
 
   return <Spinner />;
 };
+
+const Publisher = () => (
+  config.screenMode === 'url-rewrite'
+    ? <UrlRewriteScreen />
+    : <PublisherWorkflow />
+);
 
 domReady(() => {
   const container = document.getElementById('editorio-publisher-root');

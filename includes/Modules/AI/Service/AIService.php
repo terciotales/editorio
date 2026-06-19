@@ -259,6 +259,160 @@ final class AIService
         ];
     }
 
+    /**
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    public function generate_url_rewrite_draft(array $payload): array
+    {
+        $urls = $this->normalize_source_urls($payload['urls'] ?? []);
+        $categories = is_array($payload['categories'] ?? null) ? $payload['categories'] : [];
+        $current_draft = is_array($payload['current_draft'] ?? null) ? $payload['current_draft'] : [];
+        $options = $this->normalize_url_rewrite_options($payload['options'] ?? []);
+        $extra_prompt = trim((string) ($payload['prompt'] ?? ''));
+        $field = sanitize_key((string) ($payload['field'] ?? 'all'));
+        $allowed_fields = ['all', 'title', 'summary', 'categories', 'tags', 'content'];
+        if (! in_array($field, $allowed_fields, true)) {
+            $field = 'all';
+        }
+
+        if ($urls === []) {
+            return [
+                'success' => false,
+                'error' => __('At least one valid source URL is required.', 'editorio'),
+            ];
+        }
+
+        $settings = $this->settings_repository->get_settings();
+        if (empty($settings['enabled'])) {
+            return [
+                'success' => false,
+                'error' => __('AI is disabled in settings.', 'editorio'),
+            ];
+        }
+
+        $dependency = $this->get_dependency_status();
+        if (! $dependency['available']) {
+            return [
+                'success' => false,
+                'error' => __('WordPress AI plugin is not active. Activate it to use Editorio AI.', 'editorio'),
+            ];
+        }
+        if (! $dependency['has_credentials']) {
+            return [
+                'success' => false,
+                'error' => __('No AI connector configured. Configure a provider in the WordPress AI connectors screen.', 'editorio'),
+            ];
+        }
+        if (! $dependency['has_valid_credentials']) {
+            return [
+                'success' => false,
+                'error' => __('AI connector credentials are invalid or unavailable for text generation.', 'editorio'),
+            ];
+        }
+
+        $source_bundle = $this->build_url_rewrite_sources($urls);
+        $sources = $source_bundle['sources'];
+        if ($sources === []) {
+            return [
+                'success' => false,
+                'error' => __('The provided URLs could not be fetched successfully by the server.', 'editorio'),
+                'source_results' => $source_bundle['results'],
+            ];
+        }
+
+        $prompt = wp_json_encode([
+            'task' => 'Generate a single original news article in Portuguese based only on the fetched source URLs.',
+            'current_date' => current_time('mysql'),
+            'regenerate_field' => $field,
+            'editorial_note' => $extra_prompt,
+            'generation_options' => $options,
+            'available_categories' => $this->normalize_review_categories($categories),
+            'current_draft' => $current_draft,
+            'sources' => array_map(
+                static function (array $source): array {
+                    return [
+                        'url' => (string) ($source['content_url'] ?? ''),
+                        'title' => (string) ($source['title'] ?? ''),
+                        'summary' => (string) ($source['summary'] ?? ''),
+                        'source_name' => (string) ($source['source_name'] ?? ''),
+                        'content' => (string) ($source['content'] ?? ''),
+                    ];
+                },
+                $sources
+            ),
+            'output_format' => [
+                'title' => 'Original rewritten headline',
+                'summary' => 'Short deck/summary',
+                'categories_suggested' => ['Existing category name'],
+                'tags_suggested' => ['tag one', 'tag two'],
+                'content' => '<!-- wp:paragraph --><p>Opening paragraph in WordPress block markup.</p><!-- /wp:paragraph -->',
+            ],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        if (! is_string($prompt) || $prompt === '') {
+            return [
+                'success' => false,
+                'error' => __('Could not build AI prompt.', 'editorio'),
+            ];
+        }
+
+        $system_instruction = $this->build_url_rewrite_instruction(
+            (string) ($settings['rewrite_prompt'] ?? ''),
+            $extra_prompt,
+            $options
+        );
+
+        try {
+            $response = get_ai_service()->create_textgen_prompt($prompt, [
+                'system_instruction' => $system_instruction,
+            ])->generate_text();
+        } catch (\Throwable $exception) {
+            return [
+                'success' => false,
+                'error' => $exception->getMessage(),
+            ];
+        }
+
+        if (! is_string($response) || $response === '') {
+            return [
+                'success' => false,
+                'error' => __('AI provider returned an empty response.', 'editorio'),
+            ];
+        }
+
+        $decoded = $this->decode_json_response($response);
+        if ($decoded === []) {
+            $parsed = $this->parse_response($response);
+            $decoded = is_array($parsed['data'] ?? null) ? $parsed['data'] : [];
+        }
+
+        $draft = $this->normalize_review_draft($decoded, [], $current_draft);
+        if ($field !== 'all') {
+            $draft = array_merge($this->normalize_review_draft($current_draft, [], []), [
+                $this->map_review_field_to_key($field) => $draft[$this->map_review_field_to_key($field)] ?? '',
+            ]);
+        }
+
+        return [
+            'success' => true,
+            'draft' => $draft,
+            'sources' => array_map(
+                static function (array $source): array {
+                    return [
+                        'title' => (string) ($source['title'] ?? ''),
+                        'summary' => (string) ($source['summary'] ?? ''),
+                        'source_name' => (string) ($source['source_name'] ?? ''),
+                        'content_url' => (string) ($source['content_url'] ?? ''),
+                    ];
+                },
+                $sources
+            ),
+            'source_results' => $source_bundle['results'],
+            'raw' => $response,
+        ];
+    }
+
     private function build_review_draft_instruction(string $editorial_note = ''): string
     {
         $instruction = <<<TXT
@@ -300,6 +454,100 @@ TXT;
     }
 
     /**
+     * @param array<string,mixed> $options
+     */
+    private function build_url_rewrite_instruction(string $saved_editorial_note = '', string $extra_prompt = '', array $options = []): string
+    {
+        $editorial_notes = array_filter([
+            trim($saved_editorial_note),
+            trim($extra_prompt),
+        ]);
+
+        $instruction = $this->build_review_draft_instruction(implode("\n\n", $editorial_notes));
+        $instruction .= "\n\nUse all provided sources to synthesize one cohesive article.";
+        $instruction .= "\nResolve duplicated facts, omit contradictions you cannot verify, and never mention having used URLs or source extraction.";
+        $instruction .= "\nDo not output one section per source. Merge the confirmed facts into a single news article.";
+
+        $instruction .= "\n\nGeneration options:";
+        $instruction .= "\n- Article size: " . $this->map_url_rewrite_option_label('article_size', (string) ($options['article_size'] ?? 'media')) . '.';
+        $instruction .= "\n- Tone: " . $this->map_url_rewrite_option_label('tone', (string) ($options['tone'] ?? 'neutro')) . '.';
+        $instruction .= "\n- Title style: " . $this->map_url_rewrite_option_label('title_style', (string) ($options['title_style'] ?? 'objetivo')) . '.';
+        $instruction .= "\n- Include subheadings: " . (! empty($options['include_subheadings']) ? 'yes' : 'no') . '.';
+        $instruction .= "\n- Strict facts mode: " . (! empty($options['strict_facts']) ? 'yes' : 'no') . '.';
+
+        if (! empty($options['include_subheadings'])) {
+            $instruction .= "\nUse heading blocks inside content when they help structure the article.";
+        } else {
+            $instruction .= "\nPrefer continuous article flow without intermediate heading blocks unless absolutely necessary.";
+        }
+
+        if (! empty($options['strict_facts'])) {
+            $instruction .= "\nIn strict facts mode, omit any detail that is not directly supported by the provided source material.";
+        } else {
+            $instruction .= "\nWhen exact details are missing, you may use restrained connective context, but never fabricate concrete facts.";
+        }
+
+        return $instruction;
+    }
+
+    /**
+     * @param mixed $value
+     * @return array{article_size:string,tone:string,title_style:string,include_subheadings:bool,strict_facts:bool}
+     */
+    private function normalize_url_rewrite_options(mixed $value): array
+    {
+        $options = is_array($value) ? $value : [];
+
+        $article_size = sanitize_key((string) ($options['article_size'] ?? 'media'));
+        if (! in_array($article_size, ['curta', 'media', 'longa', 'completa'], true)) {
+            $article_size = 'media';
+        }
+
+        $tone = sanitize_key((string) ($options['tone'] ?? 'neutro'));
+        if (! in_array($tone, ['neutro', 'direto', 'analitico', 'informativo'], true)) {
+            $tone = 'neutro';
+        }
+
+        $title_style = sanitize_key((string) ($options['title_style'] ?? 'objetivo'));
+        if (! in_array($title_style, ['objetivo', 'chamativo', 'seo', 'institucional'], true)) {
+            $title_style = 'objetivo';
+        }
+
+        return [
+            'article_size' => $article_size,
+            'tone' => $tone,
+            'title_style' => $title_style,
+            'include_subheadings' => ! empty($options['include_subheadings']),
+            'strict_facts' => ! array_key_exists('strict_facts', $options) || ! empty($options['strict_facts']),
+        ];
+    }
+
+    private function map_url_rewrite_option_label(string $type, string $value): string
+    {
+        return match ($type) {
+            'article_size' => match ($value) {
+                'curta' => 'short',
+                'longa' => 'long',
+                'completa' => 'comprehensive',
+                default => 'medium',
+            },
+            'tone' => match ($value) {
+                'direto' => 'direct',
+                'analitico' => 'analytical',
+                'informativo' => 'informative',
+                default => 'neutral',
+            },
+            'title_style' => match ($value) {
+                'chamativo' => 'engaging but factual',
+                'seo' => 'search-oriented and precise',
+                'institucional' => 'institutional and restrained',
+                default => 'objective',
+            },
+            default => $value,
+        };
+    }
+
+    /**
      * @param array<int,array<string,mixed>> $sources
      */
     private function build_review_source_context(array $sources): string
@@ -338,6 +586,16 @@ TXT;
 
     private function fetch_review_source_text(string $url): string
     {
+        $html = $this->fetch_review_source_html($url);
+        if ($html === '') {
+            return '';
+        }
+
+        return $this->extract_review_text_from_html($html);
+    }
+
+    private function fetch_review_source_html(string $url): string
+    {
         if ($url === '' || ! wp_http_validate_url($url)) {
             return '';
         }
@@ -360,7 +618,7 @@ TXT;
             return '';
         }
 
-        return $this->extract_review_text_from_html((string) wp_remote_retrieve_body($response));
+        return (string) wp_remote_retrieve_body($response);
     }
 
     private function extract_review_text_from_html(string $html): string
@@ -369,14 +627,494 @@ TXT;
             return '';
         }
 
-        $html = preg_replace('/<(script|style|noscript|svg|iframe)\b[^>]*>.*?<\/\1>/is', ' ', $html) ?? $html;
+        $dom_text = $this->extract_primary_text_with_dom($html);
+        if ($dom_text !== '') {
+            return $this->normalize_extracted_text($dom_text, 8000);
+        }
+
+        $structured_text = $this->extract_structured_article_text($html);
+        if ($structured_text !== '') {
+            return $this->normalize_extracted_text($structured_text, 8000);
+        }
+
+        $html = preg_replace('/<(script|style|noscript|svg|iframe|template)\b[^>]*>.*?<\/\1>/is', ' ', $html) ?? $html;
         $text = wp_strip_all_tags($html, true);
+
+        return $this->normalize_extracted_text($text, 8000);
+    }
+
+    private function convert_html_to_markdown(string $html): string
+    {
+        if (trim($html) === '') {
+            return '';
+        }
+
+        if (! class_exists(\DOMDocument::class) || ! class_exists(\DOMXPath::class)) {
+            $html = preg_replace('/<(script|style|noscript|svg|iframe|template)\b[^>]*>.*?<\/\1>/is', ' ', $html) ?? $html;
+            return $this->normalize_extracted_text(wp_strip_all_tags($html, true), 12000);
+        }
+
+        $previous = libxml_use_internal_errors(true);
+        $dom = new \DOMDocument();
+        $loaded = $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_NOWARNING | LIBXML_NOERROR);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if (! $loaded) {
+            $html = preg_replace('/<(script|style|noscript|svg|iframe|template)\b[^>]*>.*?<\/\1>/is', ' ', $html) ?? $html;
+            return $this->normalize_extracted_text(wp_strip_all_tags($html, true), 12000);
+        }
+
+        $xpath = new \DOMXPath($dom);
+        foreach (['script', 'style', 'noscript', 'svg', 'iframe', 'template'] as $tag) {
+            foreach ($xpath->query('//' . $tag) ?: [] as $node) {
+                if ($node instanceof \DOMNode && $node->parentNode) {
+                    $node->parentNode->removeChild($node);
+                }
+            }
+        }
+
+        $root = $xpath->query('//body')->item(0);
+        if (! $root instanceof \DOMNode) {
+            $root = $dom->documentElement;
+        }
+
+        if (! $root instanceof \DOMNode) {
+            return '';
+        }
+
+        $markdown = $this->render_dom_node_to_markdown($root);
+
+        return $this->normalize_extracted_text($markdown, 12000);
+    }
+
+    private function render_dom_node_to_markdown(\DOMNode $node): string
+    {
+        if ($node instanceof \DOMText) {
+            return trim(preg_replace('/\s+/u', ' ', $node->textContent ?? '') ?? '');
+        }
+
+        if (! $node instanceof \DOMElement) {
+            $buffer = '';
+            foreach ($node->childNodes as $child) {
+                $buffer .= $this->render_dom_node_to_markdown($child);
+            }
+            return $buffer;
+        }
+
+        $tag = strtolower($node->tagName);
+        $parts = [];
+        foreach ($node->childNodes as $child) {
+            $parts[] = $this->render_dom_node_to_markdown($child);
+        }
+        $content = trim(implode(' ', array_filter($parts, static fn (string $part): bool => $part !== '')));
+
+        return match ($tag) {
+            'h1' => $content !== '' ? "# {$content}\n\n" : '',
+            'h2' => $content !== '' ? "## {$content}\n\n" : '',
+            'h3' => $content !== '' ? "### {$content}\n\n" : '',
+            'h4', 'h5', 'h6' => $content !== '' ? "#### {$content}\n\n" : '',
+            'p', 'div', 'section', 'article', 'main' => $content !== '' ? "{$content}\n\n" : '',
+            'br' => "\n",
+            'li' => $content !== '' ? "- {$content}\n" : '',
+            'ul', 'ol' => $content !== '' ? "{$content}\n" : '',
+            'a' => $content !== '' ? $content . ($node->getAttribute('href') !== '' ? ' (' . $node->getAttribute('href') . ')' : '') : '',
+            'blockquote' => $content !== '' ? "> {$content}\n\n" : '',
+            default => $content,
+        };
+    }
+
+    private function extract_primary_text_with_dom(string $html): string
+    {
+        if (! class_exists(\DOMDocument::class) || ! class_exists(\DOMXPath::class)) {
+            return '';
+        }
+
+        $previous = libxml_use_internal_errors(true);
+        $dom = new \DOMDocument();
+        $loaded = $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_NOWARNING | LIBXML_NOERROR);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if (! $loaded) {
+            return '';
+        }
+
+        $xpath = new \DOMXPath($dom);
+        foreach (['script', 'style', 'noscript', 'svg', 'iframe', 'template', 'header', 'footer', 'nav', 'aside'] as $tag) {
+            foreach ($xpath->query('//' . $tag) ?: [] as $node) {
+                if ($node instanceof \DOMNode && $node->parentNode) {
+                    $node->parentNode->removeChild($node);
+                }
+            }
+        }
+
+        $queries = [
+            '//article',
+            '//main',
+            '//*[contains(@class,"article-body")]',
+            '//*[contains(@class,"article-content")]',
+            '//*[contains(@class,"entry-content")]',
+            '//*[contains(@class,"post-content")]',
+            '//*[contains(@class,"content-body")]',
+            '//*[contains(@class,"materia")]',
+            '//*[contains(@id,"content")]',
+            '//body',
+        ];
+
+        $best_text = '';
+        foreach ($queries as $query) {
+            $nodes = $xpath->query($query);
+            if ($nodes === false) {
+                continue;
+            }
+
+            foreach ($nodes as $node) {
+                if (! $node instanceof \DOMNode) {
+                    continue;
+                }
+
+                $candidate = $this->normalize_extracted_text($node->textContent ?? '', 0);
+                if ($candidate === '') {
+                    continue;
+                }
+
+                if (function_exists('mb_strlen')) {
+                    if (mb_strlen($candidate) > mb_strlen($best_text)) {
+                        $best_text = $candidate;
+                    }
+                } elseif (strlen($candidate) > strlen($best_text)) {
+                    $best_text = $candidate;
+                }
+            }
+        }
+
+        return $best_text;
+    }
+
+    private function normalize_extracted_text(string $text, int $limit = 0): string
+    {
         $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $text = preg_replace('/[ \t]+/', ' ', $text) ?? $text;
         $text = preg_replace('/\R{3,}/', "\n\n", $text) ?? $text;
         $text = trim($text);
 
-        return function_exists('mb_substr') ? mb_substr($text, 0, 8000) : substr($text, 0, 8000);
+        if ($limit > 0) {
+            return function_exists('mb_substr') ? mb_substr($text, 0, $limit) : substr($text, 0, $limit);
+        }
+
+        return $text;
+    }
+
+    private function extract_structured_article_text(string $html): string
+    {
+        $chunks = [];
+
+        if (preg_match_all('/<script[^>]+type=["\']application\/ld\+json["\'][^>]*>(.*?)<\/script>/is', $html, $matches) === 1
+            || preg_match_all('/<script[^>]+type=["\']application\/ld\+json["\'][^>]*>(.*?)<\/script>/is', $html, $matches) > 1) {
+            foreach (($matches[1] ?? []) as $json_blob) {
+                $decoded = json_decode(html_entity_decode((string) $json_blob, ENT_QUOTES | ENT_HTML5, 'UTF-8'), true);
+                $chunks = array_merge($chunks, $this->extract_article_text_from_json_value($decoded));
+            }
+        }
+
+        if ($chunks === [] && preg_match('/<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)<\/script>/is', $html, $matches) === 1) {
+            $decoded = json_decode(html_entity_decode((string) ($matches[1] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'), true);
+            $chunks = array_merge($chunks, $this->extract_article_text_from_json_value($decoded));
+        }
+
+        if ($chunks === [] && preg_match('/<script[^>]*>\s*window\.__INITIAL_STATE__\s*=\s*(\{.*?\})\s*;<\/script>/is', $html, $matches) === 1) {
+            $decoded = json_decode(html_entity_decode((string) ($matches[1] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'), true);
+            $chunks = array_merge($chunks, $this->extract_article_text_from_json_value($decoded));
+        }
+
+        $chunks = array_values(array_unique(array_filter(array_map(
+            fn (string $chunk): string => $this->normalize_extracted_text($chunk, 0),
+            $chunks
+        ))));
+
+        usort(
+            $chunks,
+            static fn (string $left, string $right): int => (function_exists('mb_strlen') ? mb_strlen($right) : strlen($right))
+                <=> (function_exists('mb_strlen') ? mb_strlen($left) : strlen($left))
+        );
+
+        return $chunks[0] ?? '';
+    }
+
+    /**
+     * @param mixed $value
+     * @return array<int,string>
+     */
+    private function extract_article_text_from_json_value(mixed $value): array
+    {
+        $chunks = [];
+
+        if (is_array($value)) {
+            $type = strtolower(trim((string) ($value['@type'] ?? $value['type'] ?? '')));
+            if ($type === 'newsarticle' || $type === 'article' || $type === 'reportage' || $type === 'posting') {
+                foreach (['articleBody', 'description', 'headline', 'abstract'] as $field) {
+                    $candidate = trim((string) ($value[$field] ?? ''));
+                    if ($candidate !== '') {
+                        $chunks[] = $candidate;
+                    }
+                }
+            }
+
+            foreach ($value as $nested) {
+                $chunks = array_merge($chunks, $this->extract_article_text_from_json_value($nested));
+            }
+        } elseif (is_string($value)) {
+            $candidate = trim($value);
+            $length = function_exists('mb_strlen') ? mb_strlen($candidate) : strlen($candidate);
+            if ($length >= 180 && preg_match('/\s/', $candidate)) {
+                $chunks[] = $candidate;
+            }
+        }
+
+        return $chunks;
+    }
+
+    /**
+     * @param array<int,string> $urls
+     * @return array{sources:array<int,array<string,string>>,results:array<int,array<string,mixed>>}
+     */
+    private function build_url_rewrite_sources(array $urls): array
+    {
+        $sources = [];
+        $results = [];
+
+        foreach (array_slice($urls, 0, 6) as $url) {
+            $fetch_result = $this->fetch_url_rewrite_source_result($url);
+            $results[] = $fetch_result;
+
+            if (! ($fetch_result['success'] ?? false)) {
+                continue;
+            }
+
+            $sources[] = [
+                'title' => (string) ($fetch_result['title'] ?? ''),
+                'summary' => (string) ($fetch_result['summary'] ?? ''),
+                'source_name' => wp_parse_url($url, PHP_URL_HOST) ?: '',
+                'content_url' => $url,
+                'content' => (string) ($fetch_result['content'] ?? ''),
+            ];
+        }
+
+        return [
+            'sources' => $sources,
+            'results' => $results,
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function fetch_url_rewrite_source_result(string $url): array
+    {
+        $base = [
+            'url' => $url,
+            'source_name' => wp_parse_url($url, PHP_URL_HOST) ?: '',
+            'title' => '',
+            'summary' => '',
+            'success' => false,
+            'error' => '',
+        ];
+
+        if ($url === '' || ! wp_http_validate_url($url)) {
+            return array_merge($base, [
+                'error' => __('Invalid URL.', 'editorio'),
+            ]);
+        }
+
+        $response = wp_remote_get($url, [
+            'timeout' => 8,
+            'redirection' => 3,
+            'headers' => [
+                'User-Agent' => 'Mozilla/5.0 (compatible; EditorioBot/1.0; +https://wordpress.org/)',
+                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            ],
+        ]);
+
+        if (is_wp_error($response)) {
+            return array_merge($base, [
+                'error' => $response->get_error_message(),
+            ]);
+        }
+
+        $status = (int) wp_remote_retrieve_response_code($response);
+        if ($status < 200 || $status >= 300) {
+            return array_merge($base, [
+                'error' => sprintf(
+                    /* translators: %d is the HTTP status code */
+                    __('HTTP status %d when fetching the page.', 'editorio'),
+                    $status
+                ),
+                'http_status' => $status,
+            ]);
+        }
+
+        $html = (string) wp_remote_retrieve_body($response);
+        if (trim($html) === '') {
+            return array_merge($base, [
+                'error' => __('The page returned an empty body.', 'editorio'),
+            ]);
+        }
+
+        $content = $this->extract_review_text_from_html($html);
+        $markdown_content = $this->convert_html_to_markdown($html);
+        $title = $this->extract_best_html_title($html);
+        $summary = $this->extract_best_html_description($html);
+
+        if ($markdown_content !== '') {
+            return array_merge($base, [
+                'title' => $title,
+                'summary' => $summary,
+                'success' => true,
+                'warning' => $content === '' ? __('Full page HTML was converted to markdown because direct text extraction was insufficient.', 'editorio') : '',
+                'content' => function_exists('mb_substr') ? mb_substr($markdown_content, 0, 12000) : substr($markdown_content, 0, 12000),
+                'content_length' => function_exists('mb_strlen') ? mb_strlen($markdown_content) : strlen($markdown_content),
+                'extraction_mode' => $content === '' ? 'full_html_markdown' : 'full_text_plus_markdown',
+            ]);
+        }
+
+        $metadata_fallback = trim(implode("\n\n", array_filter([
+            $title,
+            $summary,
+            $this->extract_html_h1($html),
+            $this->extract_html_paragraph_fallback($html),
+        ])));
+        if ($metadata_fallback !== '') {
+            return array_merge($base, [
+                'title' => $title,
+                'summary' => $summary,
+                'success' => true,
+                'warning' => __('Only page metadata was extracted; full article text was unavailable.', 'editorio'),
+                'content' => $metadata_fallback,
+                'content_length' => function_exists('mb_strlen') ? mb_strlen($metadata_fallback) : strlen($metadata_fallback),
+                'extraction_mode' => 'metadata_fallback',
+            ]);
+        }
+
+        $raw_html_fallback = $this->normalize_extracted_text(wp_strip_all_tags($html, true), 12000);
+        if ($raw_html_fallback !== '') {
+            return array_merge($base, [
+                'title' => $title,
+                'summary' => $summary,
+                'success' => true,
+                'warning' => __('Raw page HTML was reduced to plain text because structured extraction was unavailable.', 'editorio'),
+                'content' => $raw_html_fallback,
+                'content_length' => function_exists('mb_strlen') ? mb_strlen($raw_html_fallback) : strlen($raw_html_fallback),
+                'extraction_mode' => 'raw_html_text_fallback',
+            ]);
+        }
+
+        return array_merge($base, [
+            'title' => $title,
+            'summary' => $summary,
+            'error' => __('The page responded, but the server could not extract any usable HTML content from it.', 'editorio'),
+        ]);
+    }
+
+    /**
+     * @param mixed $value
+     * @return array<int,string>
+     */
+    private function normalize_source_urls(mixed $value): array
+    {
+        if (is_string($value)) {
+            $value = preg_split('/[\r\n,;]+/', $value) ?: [];
+        }
+
+        if (! is_array($value)) {
+            return [];
+        }
+
+        $urls = [];
+        foreach ($value as $item) {
+            $url = esc_url_raw(trim((string) $item));
+            if ($url !== '' && wp_http_validate_url($url)) {
+                $urls[] = $url;
+            }
+        }
+
+        return array_values(array_unique($urls));
+    }
+
+    private function extract_best_html_title(string $html): string
+    {
+        foreach ([
+            '/<meta[^>]+property=["\']og:title["\'][^>]+content=["\'](.*?)["\']/is',
+            '/<meta[^>]+content=["\'](.*?)["\'][^>]+property=["\']og:title["\']/is',
+            '/<meta[^>]+name=["\']twitter:title["\'][^>]+content=["\'](.*?)["\']/is',
+            '/<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']twitter:title["\']/is',
+            '/<title[^>]*>(.*?)<\/title>/is',
+        ] as $pattern) {
+            if (preg_match($pattern, $html, $matches) === 1) {
+                $title = trim(wp_strip_all_tags(html_entity_decode((string) ($matches[1] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+                if ($title !== '') {
+                    return $title;
+                }
+            }
+        }
+
+        return $this->extract_html_h1($html);
+    }
+
+    private function extract_best_html_description(string $html): string
+    {
+        foreach ([
+            '/<meta[^>]+property=["\']og:description["\'][^>]+content=["\'](.*?)["\']/is',
+            '/<meta[^>]+content=["\'](.*?)["\'][^>]+property=["\']og:description["\']/is',
+            '/<meta[^>]+name=["\']twitter:description["\'][^>]+content=["\'](.*?)["\']/is',
+            '/<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']twitter:description["\']/is',
+            '/<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']/is',
+            '/<meta[^>]+content=["\'](.*?)["\'][^>]+name=["\']description["\']/is',
+        ] as $pattern) {
+            if (preg_match($pattern, $html, $matches) === 1) {
+                $description = trim(wp_strip_all_tags(html_entity_decode((string) ($matches[1] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+                if ($description !== '') {
+                    return $description;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private function extract_html_h1(string $html): string
+    {
+        if (preg_match('/<h1[^>]*>(.*?)<\/h1>/is', $html, $matches) !== 1) {
+            return '';
+        }
+
+        return trim(wp_strip_all_tags(html_entity_decode((string) ($matches[1] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+    }
+
+    private function extract_html_paragraph_fallback(string $html): string
+    {
+        if (preg_match_all('/<p\b[^>]*>(.*?)<\/p>/is', $html, $matches) !== false) {
+            $paragraphs = [];
+
+            foreach (($matches[1] ?? []) as $paragraph_html) {
+                $paragraph = trim(wp_strip_all_tags(html_entity_decode((string) $paragraph_html, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+                $length = function_exists('mb_strlen') ? mb_strlen($paragraph) : strlen($paragraph);
+
+                if ($paragraph !== '' && $length >= 40) {
+                    $paragraphs[] = $paragraph;
+                }
+
+                if (count($paragraphs) >= 4) {
+                    break;
+                }
+            }
+
+            if ($paragraphs !== []) {
+                return implode("\n\n", $paragraphs);
+            }
+        }
+
+        return '';
     }
 
     /**

@@ -8,6 +8,7 @@ final class AdminMenu
 {
     private const PARENT_MENU_SLUG = 'editorio';
     private const PUBLISHER_MENU_SLUG = 'editorio-publisher';
+    private const URL_REWRITE_MENU_SLUG = 'editorio-publisher-url-rewrite';
     private const SOURCES_MENU_SLUG = 'editorio-sources';
     private const AI_MENU_SLUG = 'editorio-ai';
 
@@ -34,6 +35,15 @@ final class AdminMenu
             __('Publicar', 'editorio'),
             'edit_posts',
             self::PUBLISHER_MENU_SLUG,
+            [$this, 'render_publisher_page']
+        );
+
+        add_submenu_page(
+            self::PARENT_MENU_SLUG,
+            __('Gerador de Notícias', 'editorio'),
+            __('Gerador de Notícias', 'editorio'),
+            'edit_posts',
+            self::URL_REWRITE_MENU_SLUG,
             [$this, 'render_publisher_page']
         );
 

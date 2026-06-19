@@ -182,7 +182,7 @@ final class PublisherService
         if ($stage === 'completed') {
             $created_posts = $this->get_created_posts_for_session($session_id);
             $data['created_posts'] = $created_posts;
-            $data['summary']['created'] = count($created_posts);
+            $data['summary'] = $this->build_completed_summary($session_id, $data['summary'], $created_posts);
         }
 
         return [
@@ -579,6 +579,7 @@ final class PublisherService
             $action = (string) ($item_action['action'] ?? 'draft');
 
             if ($action === 'exclude') {
+                $this->repository->update_item_finalization($session_id, $item_id, 'exclude');
                 $excluded_count++;
                 $action_counts['excluded']++;
                 continue;
@@ -593,6 +594,7 @@ final class PublisherService
             if ($post_status === 'future') {
                 $timestamp = strtotime($scheduled_at);
                 if ($scheduled_at === '' || $timestamp === false) {
+                    $this->repository->update_item_finalization($session_id, $item_id, $action);
                     $failed_posts[] = [
                         'workflow_item_id' => $item_id,
                         'title' => $item['generated_title'] ?? 'Untitled',
@@ -629,6 +631,7 @@ final class PublisherService
             $post_id = wp_insert_post($post_data);
 
             if (is_wp_error($post_id)) {
+                $this->repository->update_item_finalization($session_id, $item_id, $action);
                 $failed_posts[] = [
                     'workflow_item_id' => $item_id,
                     'title' => $item['generated_title'] ?? 'Untitled',
@@ -649,12 +652,22 @@ final class PublisherService
                     $action_counts['drafted']++;
                 }
 
+                $this->repository->update_item_finalization(
+                    $session_id,
+                    $item_id,
+                    $action,
+                    (int) $post_id,
+                    $post_status
+                );
+
                 $created_posts[] = [
                     'workflow_item_id' => $item['id'],
                     'post_id' => $post_id,
                     'title' => $item['generated_title'] ?? 'Untitled',
                     'action' => $action,
                     'post_status' => $post_status,
+                    'view_url' => $this->get_post_view_url((int) $post_id),
+                    'edit_url' => get_edit_post_link((int) $post_id, 'raw') ?: '',
                 ];
             }
         }
@@ -763,13 +776,124 @@ final class PublisherService
         ]);
 
         return array_map(
-            static fn ($post_id): array => [
+            fn ($post_id): array => [
                 'post_id' => (int) $post_id,
                 'title' => get_the_title((int) $post_id),
+                'action' => $this->map_post_status_to_action((string) get_post_status((int) $post_id)),
+                'post_status' => (string) get_post_status((int) $post_id),
+                'view_url' => $this->get_post_view_url((int) $post_id),
                 'edit_url' => get_edit_post_link((int) $post_id, 'raw') ?: '',
             ],
             is_array($post_ids) ? $post_ids : []
         );
+    }
+
+    /**
+     * @param array<string,mixed> $summary
+     * @param array<int,array<string,mixed>> $created_posts
+     * @return array<string,mixed>
+     */
+    private function build_completed_summary(string $session_id, array $summary, array $created_posts): array
+    {
+        $selected_items = $this->repository->get_selected_items($session_id);
+        $approved_items = array_filter(
+            $selected_items,
+            static fn (array $item): bool => (string) ($item['approval_status'] ?? '') === 'approved'
+        );
+
+        $has_persisted_finalization = array_reduce(
+            $approved_items,
+            static fn (bool $carry, array $item): bool => $carry || (string) ($item['final_action'] ?? '') !== '',
+            false
+        );
+
+        if ($has_persisted_finalization) {
+            $published = 0;
+            $drafted = 0;
+            $scheduled = 0;
+            $excluded = 0;
+            $failed = 0;
+            $created = 0;
+
+            foreach ($approved_items as $item) {
+                $final_action = (string) ($item['final_action'] ?? '');
+                $final_post_id = (int) ($item['final_post_id'] ?? 0);
+
+                if ($final_action === 'exclude') {
+                    $excluded++;
+                    continue;
+                }
+
+                if ($final_post_id > 0) {
+                    $created++;
+
+                    if ($final_action === 'publish') {
+                        $published++;
+                    } elseif ($final_action === 'schedule') {
+                        $scheduled++;
+                    } else {
+                        $drafted++;
+                    }
+
+                    continue;
+                }
+
+                if ($final_action !== '') {
+                    $failed++;
+                }
+            }
+
+            return array_merge($summary, [
+                'created' => $created,
+                'excluded' => $excluded,
+                'failed' => $failed,
+                'published' => $published,
+                'drafted' => $drafted,
+                'scheduled' => $scheduled,
+            ]);
+        }
+
+        $created_count = count($created_posts);
+        $published = count(array_filter(
+            $created_posts,
+            static fn (array $post): bool => (string) ($post['post_status'] ?? '') === 'publish'
+        ));
+        $scheduled = count(array_filter(
+            $created_posts,
+            static fn (array $post): bool => (string) ($post['post_status'] ?? '') === 'future'
+        ));
+        $drafted = max(0, $created_count - $published - $scheduled);
+        $approved_count = (int) ($summary['approved'] ?? 0);
+        $excluded = max(0, $approved_count - $created_count);
+
+        return array_merge($summary, [
+            'created' => $created_count,
+            'excluded' => $excluded,
+            'failed' => (int) ($summary['failed'] ?? 0),
+            'published' => $published,
+            'drafted' => $drafted,
+            'scheduled' => $scheduled,
+        ]);
+    }
+
+    private function map_post_status_to_action(string $post_status): string
+    {
+        return match ($post_status) {
+            'publish' => 'publish',
+            'future' => 'schedule',
+            default => 'draft',
+        };
+    }
+
+    private function get_post_view_url(int $post_id): string
+    {
+        $status = get_post_status($post_id);
+
+        if ($status === 'publish') {
+            return get_permalink($post_id) ?: '';
+        }
+
+        return get_preview_post_link($post_id) ?: '';
     }
 
     public function get_status(): array

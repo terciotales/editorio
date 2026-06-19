@@ -193,6 +193,9 @@ final class PublisherRepository
                     wi.generated_tags,
                     wi.featured_image_id,
                     wi.featured_image_url,
+                    wi.final_action,
+                    wi.final_post_id,
+                    wi.final_post_status,
                     wi.generated_content,
                     wi.curation_sources,
                     ci.source_id,
@@ -487,6 +490,29 @@ final class PublisherRepository
         return $this->get_selected_items($session_id);
     }
 
+    public function update_item_finalization(
+        string $session_id,
+        int $item_id,
+        string $final_action,
+        int $final_post_id = 0,
+        string $final_post_status = ''
+    ): void
+    {
+        $this->ensure_items_schema();
+
+        $this->wpdb->update(
+            $this->table_items,
+            [
+                'final_action' => $final_action,
+                'final_post_id' => $final_post_id > 0 ? $final_post_id : null,
+                'final_post_status' => $final_post_status !== '' ? $final_post_status : null,
+            ],
+            ['session_id' => $session_id, 'id' => $item_id],
+            ['%s', '%d', '%s'],
+            ['%s', '%d']
+        );
+    }
+
     public function count(): int
     {
         return 0;
@@ -504,6 +530,9 @@ final class PublisherRepository
             'generated_tags' => 'LONGTEXT',
             'featured_image_id' => 'BIGINT NULL',
             'featured_image_url' => 'LONGTEXT NULL',
+            'final_action' => 'VARCHAR(20)',
+            'final_post_id' => 'BIGINT NULL',
+            'final_post_status' => 'VARCHAR(20)',
         ];
 
         foreach ($columns as $column => $definition) {

@@ -148,6 +148,26 @@ final class PublisherController
                 'permission_callback' => fn() => current_user_can('edit_posts'),
             ]
         );
+
+        register_rest_route(
+            'editorio/v1',
+            '/publisher/url-rewrite-draft',
+            [
+                'methods' => 'POST',
+                'callback' => [$this, 'generate_url_rewrite_draft'],
+                'permission_callback' => fn() => current_user_can('edit_posts'),
+            ]
+        );
+
+        register_rest_route(
+            'editorio/v1',
+            '/publisher/url-generated-post',
+            [
+                'methods' => 'POST',
+                'callback' => [$this, 'create_url_generated_post'],
+                'permission_callback' => fn() => current_user_can('edit_posts'),
+            ]
+        );
     }
 
     public function debug_collector_items(): WP_REST_Response
@@ -324,6 +344,29 @@ final class PublisherController
         $params = $request->get_json_params();
         $items = is_array($params['items'] ?? null) ? $params['items'] : [];
         $result = $this->service->save_approved_drafts($session_id, $items);
+
+        return new WP_REST_Response($result);
+    }
+
+    public function generate_url_rewrite_draft(WP_REST_Request $request): WP_REST_Response
+    {
+        $params = $request->get_json_params();
+        $result = $this->service->generate_url_rewrite_draft(is_array($params) ? $params : []);
+
+        return new WP_REST_Response($result);
+    }
+
+    public function create_url_generated_post(WP_REST_Request $request): WP_REST_Response
+    {
+        $params = $request->get_json_params();
+        $result = $this->service->create_url_generated_post(is_array($params) ? $params : []);
+
+        if ($result instanceof \WP_Error) {
+            return new WP_REST_Response(
+                ['error' => $result->get_error_message()],
+                (int) ($result->get_error_data()['status'] ?? 400)
+            );
+        }
 
         return new WP_REST_Response($result);
     }

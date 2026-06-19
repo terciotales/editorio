@@ -545,6 +545,89 @@ final class PublisherService
     }
 
     /**
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    public function generate_url_rewrite_draft(array $payload): array
+    {
+        return $this->ai_service->generate_url_rewrite_draft($payload);
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     */
+    public function create_url_generated_post(array $payload): array|WP_Error
+    {
+        $title = sanitize_text_field((string) ($payload['title'] ?? ''));
+        $content = (string) ($payload['content'] ?? '');
+        $summary = sanitize_textarea_field((string) ($payload['summary'] ?? ''));
+        $category_names = $this->decode_string_list($payload['categories'] ?? []);
+        $tags = $this->decode_string_list($payload['tags'] ?? []);
+        $featured_image_id = (int) ($payload['featured_image_id'] ?? 0);
+        $action = sanitize_key((string) ($payload['action'] ?? 'draft'));
+        $scheduled_at = sanitize_text_field((string) ($payload['scheduled_at'] ?? ''));
+
+        if ($title === '') {
+            return new WP_Error('missing_title', __('A title is required.', 'editorio'), ['status' => 400]);
+        }
+
+        if (trim(wp_strip_all_tags($content)) === '') {
+            return new WP_Error('missing_content', __('Content is required.', 'editorio'), ['status' => 400]);
+        }
+
+        if (! in_array($action, ['draft', 'publish', 'schedule'], true)) {
+            $action = 'draft';
+        }
+
+        $post_status = match ($action) {
+            'publish' => 'publish',
+            'schedule' => 'future',
+            default => 'draft',
+        };
+
+        if ($post_status === 'future') {
+            $timestamp = strtotime($scheduled_at);
+            if ($scheduled_at === '' || $timestamp === false) {
+                return new WP_Error('invalid_schedule', __('A valid schedule date is required.', 'editorio'), ['status' => 400]);
+            }
+        }
+
+        $post_data = [
+            'post_type' => 'post',
+            'post_status' => $post_status,
+            'post_title' => $title,
+            'post_content' => wp_kses_post($content),
+            'post_excerpt' => $summary,
+            'post_author' => get_current_user_id(),
+            'post_category' => $this->resolve_category_ids($category_names),
+            'tags_input' => $tags,
+        ];
+
+        if ($post_status === 'future') {
+            $post_data['post_date'] = date('Y-m-d H:i:s', strtotime($scheduled_at));
+            $post_data['post_date_gmt'] = get_gmt_from_date($post_data['post_date']);
+        }
+
+        $post_id = wp_insert_post($post_data, true);
+        if (is_wp_error($post_id)) {
+            return $post_id;
+        }
+
+        if ($featured_image_id > 0 && get_post_type($featured_image_id) === 'attachment') {
+            set_post_thumbnail((int) $post_id, $featured_image_id);
+        }
+
+        return [
+            'post_id' => (int) $post_id,
+            'title' => $title,
+            'action' => $action,
+            'post_status' => $post_status,
+            'view_url' => $this->get_post_view_url((int) $post_id),
+            'edit_url' => get_edit_post_link((int) $post_id, 'raw') ?: '',
+        ];
+    }
+
+    /**
      * Salva items aprovados como drafts do WordPress
      */
     public function save_approved_drafts(string $session_id, array $item_actions = []): array|WP_Error

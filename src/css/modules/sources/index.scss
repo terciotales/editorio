@@ -7,6 +7,26 @@
 	box-sizing: border-box;
 	margin: 0 auto;
 	padding: 24px;
+	width: 100%;
+}
+
+.editorio-sources-page > * {
+	width: 100%;
+}
+
+.editorio-sources-page > * > * {
+	width: 100%;
+}
+
+.editorio-sources-page .components-card,
+.editorio-sources-page [data-wp-component="Card"] {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.editorio-sources-page .components-card__body {
+	width: 100%;
+	box-sizing: border-box;
 }
 
 .editorio-sources-page__page-actions {
@@ -80,6 +100,14 @@
 	border: 1px solid #dcdcde;
 	border-radius: 12px;
 	background: #fff;
+}
+
+.editorio-sources-page__loading {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	min-height: 160px;
 }
 
 .editorio-sources-page__table th,

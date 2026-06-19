@@ -1864,12 +1864,15 @@
     border: 1px solid rgba(148, 163, 184, 0.18);
     border-radius: 8px;
     background: #ffffff;
+    overflow: hidden;
 
     strong {
         display: block;
         color: #0f172a;
         font-size: 14px;
         line-height: 1.35;
+        overflow-wrap: anywhere;
+        word-break: break-word;
     }
 
     small {
@@ -1888,6 +1891,69 @@
         color: #15803d;
         font-size: 12px;
         font-weight: 800;
+    }
+}
+
+.editorio-publisher__completion-item-copy {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.editorio-publisher__completion-item-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+
+    > span {
+        flex-shrink: 0;
+        padding: 5px 9px;
+        border-radius: 999px;
+        background: #f0fdf4;
+        color: #15803d;
+        font-size: 12px;
+        font-weight: 800;
+    }
+}
+
+.editorio-publisher__completion-item:hover .editorio-publisher__completion-icon-button,
+.editorio-publisher__completion-item:focus-within .editorio-publisher__completion-icon-button {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.editorio-publisher__completion-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: #ffffff;
+    color: #334155;
+    text-decoration: none;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    flex-shrink: 0;
+
+    &:hover,
+    &:focus {
+        border-color: rgba(148, 163, 184, 0.3);
+        color: #0f172a;
+        text-decoration: none;
+    }
+
+    .dashicons {
+        width: 16px;
+        height: 16px;
+        font-size: 16px;
+        line-height: 16px;
     }
 }
 
@@ -2114,6 +2180,15 @@
 
     .editorio-publisher__completion-item {
         display: grid;
+    }
+
+    .editorio-publisher__completion-item-actions {
+        justify-content: flex-start;
+    }
+
+    .editorio-publisher__completion-icon-button {
+        opacity: 1;
+        pointer-events: auto;
     }
 
     .editorio-publisher__stats {
